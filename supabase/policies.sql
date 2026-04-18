@@ -1,0 +1,322 @@
+-- Minimal and strict RLS policies for the core workflow tables:
+--   profiles, leave_requests, procedure_catalog, logbook_entries, shifts
+-- Assumes public.profiles is the single source of truth for role.
+
+-- ---------------------------------------------------------------------------
+-- Role helpers
+-- ---------------------------------------------------------------------------
+
+create or replace function public.get_my_role()
+returns public.app_role
+language sql
+stable
+as $$
+  select role
+  from public.profiles
+  where id = auth.uid()
+$$;
+
+create or replace function public.is_scheduler_or_admin()
+returns boolean
+language sql
+stable
+as $$
+  select public.get_my_role() in ('addetto_turni', 'amministratore')
+$$;
+
+-- ---------------------------------------------------------------------------
+-- profiles
+-- Rules:
+-- - user reads own profile
+-- - admin can read all
+-- - user updates only own row and cannot escalate role/deactivate/edit email
+-- ---------------------------------------------------------------------------
+
+alter table public.profiles enable row level security;
+
+drop policy if exists "profiles_select_own_or_admin" on public.profiles;
+create policy "profiles_select_own_or_admin"
+on public.profiles
+for select
+to authenticated
+using (
+  auth.uid() = id
+  or public.get_my_role() = 'amministratore'
+);
+
+drop policy if exists "profiles_update_own_limited_fields" on public.profiles;
+create policy "profiles_update_own_limited_fields"
+on public.profiles
+for update
+to authenticated
+using (auth.uid() = id)
+with check (
+  auth.uid() = id
+  and exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and p.email = profiles.email
+      and p.role = profiles.role
+      and p.is_active = profiles.is_active
+  )
+);
+
+-- ---------------------------------------------------------------------------
+-- leave_requests
+-- Rules:
+-- - trainee sees own requests
+-- - trainee inserts only own pending requests
+-- - trainee updates only own pending requests
+-- - scheduler/admin read all and can approve/reject
+-- ---------------------------------------------------------------------------
+
+alter table public.leave_requests enable row level security;
+
+drop policy if exists "leave_select_own_or_scheduler_admin" on public.leave_requests;
+create policy "leave_select_own_or_scheduler_admin"
+on public.leave_requests
+for select
+to authenticated
+using (
+  requester_profile_id = auth.uid()
+  or public.is_scheduler_or_admin()
+);
+
+drop policy if exists "leave_insert_own_pending" on public.leave_requests;
+create policy "leave_insert_own_pending"
+on public.leave_requests
+for insert
+to authenticated
+with check (
+  requester_profile_id = auth.uid()
+  and status = 'in_attesa'
+  and approved_by is null
+  and approved_at is null
+);
+
+drop policy if exists "leave_update_own_only_pending" on public.leave_requests;
+create policy "leave_update_own_only_pending"
+on public.leave_requests
+for update
+to authenticated
+using (
+  requester_profile_id = auth.uid()
+  and status = 'in_attesa'
+)
+with check (
+  requester_profile_id = auth.uid()
+  and status = 'in_attesa'
+  and approved_by is null
+  and approved_at is null
+);
+
+-- Solo transizione da in_attesa a approvato/rifiutato; approvatore = utente corrente; niente riscrittura storico.
+drop policy if exists "leave_update_scheduler_admin_approval" on public.leave_requests;
+create policy "leave_update_scheduler_admin_approval"
+on public.leave_requests
+for update
+to authenticated
+using (
+  public.is_scheduler_or_admin()
+  and status = 'in_attesa'
+)
+with check (
+  public.is_scheduler_or_admin()
+  and status in ('approvato', 'rifiutato')
+  and approved_by = auth.uid()
+  and approved_at is not null
+);
+
+-- ---------------------------------------------------------------------------
+-- procedure_catalog
+-- Decisione esplicita: catalogo di sola lettura per ogni utente autenticato.
+-- Serve a select diretti (es. logbook) e embed PostgREST da logbook_entries;
+-- nessuna INSERT/UPDATE/DELETE da ruolo authenticated (gestione catalogo solo
+-- service role / amministratore DB).
+-- ---------------------------------------------------------------------------
+
+alter table public.procedure_catalog enable row level security;
+
+drop policy if exists "procedure_catalog_select_authenticated" on public.procedure_catalog;
+create policy "procedure_catalog_select_authenticated"
+on public.procedure_catalog
+for select
+to authenticated
+using (true);
+
+-- ---------------------------------------------------------------------------
+-- logbook_entries
+-- Rules:
+-- - trainee sees/modifies own entries
+-- - admin can read all entries
+-- ---------------------------------------------------------------------------
+
+alter table public.logbook_entries enable row level security;
+
+drop policy if exists "logbook_select_own_or_admin" on public.logbook_entries;
+create policy "logbook_select_own_or_admin"
+on public.logbook_entries
+for select
+to authenticated
+using (
+  trainee_profile_id = auth.uid()
+  or public.get_my_role() = 'amministratore'
+);
+
+drop policy if exists "logbook_insert_own" on public.logbook_entries;
+create policy "logbook_insert_own"
+on public.logbook_entries
+for insert
+to authenticated
+with check (trainee_profile_id = auth.uid());
+
+drop policy if exists "logbook_update_own" on public.logbook_entries;
+create policy "logbook_update_own"
+on public.logbook_entries
+for update
+to authenticated
+using (trainee_profile_id = auth.uid())
+with check (trainee_profile_id = auth.uid());
+
+-- ---------------------------------------------------------------------------
+-- shifts
+-- Rules:
+-- - trainee sees only own shifts (assignee)
+-- - scheduler/admin see all and can manage (insert/update/delete)
+-- ---------------------------------------------------------------------------
+
+alter table public.shifts enable row level security;
+
+drop policy if exists "shifts_select_own_or_scheduler_admin" on public.shifts;
+create policy "shifts_select_own_or_scheduler_admin"
+on public.shifts
+for select
+to authenticated
+using (
+  assignee_profile_id = auth.uid()
+  or public.is_scheduler_or_admin()
+);
+
+drop policy if exists "shifts_insert_scheduler_admin" on public.shifts;
+create policy "shifts_insert_scheduler_admin"
+on public.shifts
+for insert
+to authenticated
+with check (public.is_scheduler_or_admin());
+
+drop policy if exists "shifts_update_scheduler_admin" on public.shifts;
+create policy "shifts_update_scheduler_admin"
+on public.shifts
+for update
+to authenticated
+using (public.is_scheduler_or_admin())
+with check (public.is_scheduler_or_admin());
+
+drop policy if exists "shifts_delete_scheduler_admin" on public.shifts;
+create policy "shifts_delete_scheduler_admin"
+on public.shifts
+for delete
+to authenticated
+using (public.is_scheduler_or_admin());
+
+-- ---------------------------------------------------------------------------
+-- learning_resources (archivio didattico)
+-- Rules:
+-- - select: amministratore vede tutto; altri solo se il proprio ruolo e' in visibility[]
+-- - insert/update/delete: solo amministratore
+-- Nota: per resource_type = 'pdf', file_url contiene il path oggetto nel bucket privato learning-pdfs
+--       (es. "{uuid}/nome-file.pdf"), non un URL pubblico.
+-- ---------------------------------------------------------------------------
+
+alter table public.learning_resources enable row level security;
+
+drop policy if exists "learning_resources_select_visible" on public.learning_resources;
+create policy "learning_resources_select_visible"
+on public.learning_resources
+for select
+to authenticated
+using (
+  public.get_my_role() = 'amministratore'
+  or (
+    public.get_my_role() is not null
+    and visibility @> ARRAY[public.get_my_role()]
+  )
+);
+
+drop policy if exists "learning_resources_insert_admin" on public.learning_resources;
+create policy "learning_resources_insert_admin"
+on public.learning_resources
+for insert
+to authenticated
+with check (public.get_my_role() = 'amministratore');
+
+drop policy if exists "learning_resources_update_admin" on public.learning_resources;
+create policy "learning_resources_update_admin"
+on public.learning_resources
+for update
+to authenticated
+using (public.get_my_role() = 'amministratore')
+with check (public.get_my_role() = 'amministratore');
+
+drop policy if exists "learning_resources_delete_admin" on public.learning_resources;
+create policy "learning_resources_delete_admin"
+on public.learning_resources
+for delete
+to authenticated
+using (public.get_my_role() = 'amministratore');
+
+-- ---------------------------------------------------------------------------
+-- Storage: bucket privato learning-pdfs (PDF didattici)
+-- Eseguire anche l'insert in storage.buckets (vedi snippet sotto) se il bucket non esiste.
+-- ---------------------------------------------------------------------------
+
+insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+values ('learning-pdfs', 'learning-pdfs', false, 52428800, array['application/pdf']::text[])
+on conflict (id) do update
+set
+  public = excluded.public,
+  file_size_limit = excluded.file_size_limit,
+  allowed_mime_types = excluded.allowed_mime_types;
+
+drop policy if exists "learning_pdfs_insert_admin" on storage.objects;
+create policy "learning_pdfs_insert_admin"
+on storage.objects
+for insert
+to authenticated
+with check (
+  bucket_id = 'learning-pdfs'
+  and public.get_my_role() = 'amministratore'
+);
+
+drop policy if exists "learning_pdfs_select_visible" on storage.objects;
+create policy "learning_pdfs_select_visible"
+on storage.objects
+for select
+to authenticated
+using (
+  bucket_id = 'learning-pdfs'
+  and exists (
+    select 1
+    from public.learning_resources lr
+    where lr.resource_type = 'pdf'
+      and lr.file_url = storage.objects.name
+      and (
+        public.get_my_role() = 'amministratore'
+        or (
+          public.get_my_role() is not null
+          and lr.visibility @> ARRAY[public.get_my_role()]
+        )
+      )
+  )
+);
+
+drop policy if exists "learning_pdfs_delete_admin" on storage.objects;
+create policy "learning_pdfs_delete_admin"
+on storage.objects
+for delete
+to authenticated
+using (
+  bucket_id = 'learning-pdfs'
+  and public.get_my_role() = 'amministratore'
+);
