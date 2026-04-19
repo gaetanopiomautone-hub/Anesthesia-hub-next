@@ -1,31 +1,25 @@
-import { createServerClient } from "@supabase/ssr";
-import { cookies } from "next/headers";
-
-import { getSupabaseEnv } from "@/lib/supabase/env";
+import { createServerClient } from '@supabase/ssr';
+import { cookies } from 'next/headers';
+import { getSupabaseEnv } from './env';
 
 type CookieToSet = {
   name: string;
   value: string;
-  options?: Parameters<Awaited<ReturnType<typeof cookies>>["set"]>[2];
+  options?: Parameters<Awaited<ReturnType<typeof cookies>>['set']>[2];
 };
 
 export async function createServerSupabaseClient() {
   const cookieStore = await cookies();
   const { url, anonKey } = getSupabaseEnv();
 
-  return createServerClient(
-    url,
-    anonKey,
-    {
-      cookies: {
-        getAll() {
-          return cookieStore.getAll();
-        },
-       setAll(_cookiesToSet: CookieToSet[]) {
-  // no-op: nei Server Components non si possono modificare i cookie
-},
-        },
+  return createServerClient(url, anonKey, {
+    cookies: {
+      getAll() {
+        return cookieStore.getAll();
+      },
+      setAll(_cookiesToSet: CookieToSet[]) {
+        // no-op: nei Server Components non si possono modificare i cookie
       },
     },
-  );
+  });
 }
