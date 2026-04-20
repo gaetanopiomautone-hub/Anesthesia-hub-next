@@ -74,11 +74,12 @@ export default async function DashboardPage() {
 
         <Card title="Attenzione" description="Notifiche utili per il ruolo corrente">
           <ul className="space-y-3 text-sm text-muted-foreground">
-            { || user.role === "admin" ? (
+            {user.role === "admin" ? (
               <li>Verifica le richieste in attesa prima di modificare turni critici.</li>
             ) : null}
-            {user.role === "specializzando" ? <li>Controlla copertura e tutoraggio prima di richiedere ferie.</li> : null}
-            {user.role === "tutor" ? <li>Usa il logbook per feedback formativo, senza dati identificativi paziente.</li> : null}
+            {user.role === "specializzando" ? (
+              <li>Controlla copertura e tutoraggio prima di richiedere ferie.</li>
+            ) : null}
             <li>Le procedure vengono registrate senza alcun identificativo paziente.</li>
           </ul>
         </Card>
