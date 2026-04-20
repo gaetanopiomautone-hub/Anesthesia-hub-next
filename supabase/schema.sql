@@ -12,9 +12,8 @@ begin
   if not exists (select 1 from pg_type where typname = 'app_role') then
     create type public.app_role as enum (
       'specializzando',
-      'addetto_turni',
-      'amministratore',
-      'tutor_strutturato'
+      'admin',
+      'tutor'
     );
   end if;
 end$$;
@@ -202,9 +201,8 @@ create table if not exists public.learning_resources (
   external_url text,
   visibility public.app_role[] not null default array[
     'specializzando',
-    'addetto_turni',
-    'amministratore',
-    'tutor_strutturato'
+    'admin',
+    'tutor'
   ]::public.app_role[],
   created_by uuid references public.profiles (id) on delete set null,
   created_at timestamptz not null default now(),

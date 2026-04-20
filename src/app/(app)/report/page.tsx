@@ -18,7 +18,7 @@ export default async function ReportPage() {
       <PageHeader
         eyebrow="Report procedure"
         title="Analisi per settimana, mese e ultimi due mesi"
-        description="Conteggi per procedura (catalogo) sulle voci logbook visibili al tuo ruolo: specializzando vede solo le proprie registrazioni; amministratore le viste complessive. L’ultima colonna usa una finestra mobile da inizio mese scorso a fine mese corrente."
+        description="Conteggi per procedura (catalogo) sulle voci logbook visibili al tuo ruolo: specializzando vede solo le proprie registrazioni; admin le viste complessive. L’ultima colonna usa una finestra mobile da inizio mese scorso a fine mese corrente."
       />
 
       <section className="grid gap-6 lg:grid-cols-3">

@@ -103,11 +103,11 @@ export function autonomyLabel(level: LogbookRow["autonomy_level"]) {
 }
 
 function canReadLeaveRequests(role: AppRole) {
-  return role === "specializzando" || role === "addetto_turni" || role === "amministratore";
+  return role === "specializzando" || role === "addetto_turni" || role === "admin";
 }
 
 function canReadLogbookEntries(role: AppRole) {
-  return role === "specializzando" || role === "tutor_strutturato" || role === "amministratore";
+  return role === "specializzando" || role === "tutor_strutturato" || role === "admin";
 }
 
 async function countShiftsInRangeByArea(params: {

@@ -27,7 +27,7 @@ export const demoUsers: DemoUser[] = [
     id: "usr-admin-1",
     fullName: "Laura Conti",
     email: "laura.conti@policlinicosandonato.it",
-    role: "amministratore",
+    role: "admin",
     residencyYear: null,
   },
   {

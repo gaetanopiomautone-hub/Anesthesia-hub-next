@@ -17,7 +17,7 @@ insert into public.profiles (id, email, full_name, role, year_of_training)
 values
   ('10000000-0000-0000-0000-000000000001', 'giulia.bianchi@policlinicosandonato.it', 'Giulia Bianchi', 'specializzando', 3),
   ('10000000-0000-0000-0000-000000000002', 'marco.rinaldi@policlinicosandonato.it', 'Marco Rinaldi', 'addetto_turni', null),
-  ('10000000-0000-0000-0000-000000000003', 'laura.conti@policlinicosandonato.it', 'Laura Conti', 'amministratore', null),
+  ('10000000-0000-0000-0000-000000000003', 'laura.conti@policlinicosandonato.it', 'Laura Conti', 'admin', null),
   ('10000000-0000-0000-0000-000000000004', 'davide.sala@policlinicosandonato.it', 'Davide Sala', 'tutor_strutturato', null)
 on conflict (id) do nothing;
 
@@ -40,8 +40,8 @@ values
 -- PDF didattici: usare upload da app (bucket privato learning-pdfs); file_url = path oggetto, non URL pubblico.
 insert into public.learning_resources (title, description, resource_type, file_url, external_url, visibility, created_by)
 values
-  ('Protocollo vie aeree difficili', 'Esempio link (sostituibile con PDF da Storage)', 'link', null, 'https://example.com/airway', array['specializzando','tutor_strutturato','amministratore']::public.app_role[], '10000000-0000-0000-0000-000000000003'),
-  ('Linee guida sedazione in rianimazione', 'Riferimento esterno', 'link', null, 'https://example.com/sedazione', array['specializzando','tutor_strutturato','amministratore','addetto_turni']::public.app_role[], '10000000-0000-0000-0000-000000000003');
+  ('Protocollo vie aeree difficili', 'Esempio link (sostituibile con PDF da Storage)', 'link', null, 'https://example.com/airway', array['specializzando','tutor_strutturato','admin']::public.app_role[], '10000000-0000-0000-0000-000000000003'),
+  ('Linee guida sedazione in rianimazione', 'Riferimento esterno', 'link', null, 'https://example.com/sedazione', array['specializzando','tutor_strutturato','admin','addetto_turni']::public.app_role[], '10000000-0000-0000-0000-000000000003');
 
 insert into public.logbook_entries (trainee_profile_id, procedure_catalog_id, performed_on, clinical_location_id, supervision_level, autonomy_level, confidence_level, supervisor_profile_id, notes)
 values

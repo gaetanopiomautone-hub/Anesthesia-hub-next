@@ -291,7 +291,7 @@ async function listLeavesOverlappingMonth(params: { monthStart: string; monthEnd
 }
 
 export async function listSpecializzandiForFilter(profile: CurrentUserProfile) {
-  if (profile.role !== "amministratore") return [];
+  if (profile.role !== "admin") return [];
 
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
@@ -313,7 +313,7 @@ export async function loadTurniFeriePageData(
   params: { monthStart: string; monthEnd: string; assigneeId: string | null },
 ) {
   const isTrainee = profile.role === "specializzando";
-  const isAdmin = profile.role === "amministratore";
+  const isAdmin = profile.role === "admin";
   const viewAll = isAdmin ? params.assigneeId === null : !isTrainee;
 
   const effectiveAssignee = isTrainee ? profile.id : params.assigneeId;

@@ -11,10 +11,9 @@ Gestionale web MVP per specializzandi di anestesia del Policlinico San Donato, c
 
 ## Ruoli supportati
 
+- `admin`
+- `tutor`
 - `specializzando`
-- `addetto_turni`
-- `amministratore`
-- `tutor_strutturato`
 
 ## Funzionalita' MVP
 

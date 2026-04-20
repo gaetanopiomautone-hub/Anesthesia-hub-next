@@ -21,7 +21,7 @@ returns boolean
 language sql
 stable
 as $$
-  select public.get_my_role() in ('addetto_turni', 'amministratore')
+  select public.get_my_role() in ('tutor', 'admin')
 $$;
 
 -- ---------------------------------------------------------------------------
@@ -41,7 +41,7 @@ for select
 to authenticated
 using (
   auth.uid() = id
-  or public.get_my_role() = 'amministratore'
+  or public.get_my_role() = 'admin'
 );
 
 drop policy if exists "profiles_update_own_limited_fields" on public.profiles;
@@ -161,7 +161,7 @@ for select
 to authenticated
 using (
   trainee_profile_id = auth.uid()
-  or public.get_my_role() = 'amministratore'
+  or public.get_my_role() = 'admin'
 );
 
 drop policy if exists "logbook_insert_own" on public.logbook_entries;
@@ -237,7 +237,7 @@ on public.learning_resources
 for select
 to authenticated
 using (
-  public.get_my_role() = 'amministratore'
+  public.get_my_role() = 'admin'
   or (
     public.get_my_role() is not null
     and visibility @> ARRAY[public.get_my_role()]
@@ -249,22 +249,22 @@ create policy "learning_resources_insert_admin"
 on public.learning_resources
 for insert
 to authenticated
-with check (public.get_my_role() = 'amministratore');
+with check (public.get_my_role() = 'admin');
 
 drop policy if exists "learning_resources_update_admin" on public.learning_resources;
 create policy "learning_resources_update_admin"
 on public.learning_resources
 for update
 to authenticated
-using (public.get_my_role() = 'amministratore')
-with check (public.get_my_role() = 'amministratore');
+using (public.get_my_role() = 'admin')
+with check (public.get_my_role() = 'admin');
 
 drop policy if exists "learning_resources_delete_admin" on public.learning_resources;
 create policy "learning_resources_delete_admin"
 on public.learning_resources
 for delete
 to authenticated
-using (public.get_my_role() = 'amministratore');
+using (public.get_my_role() = 'admin');
 
 -- ---------------------------------------------------------------------------
 -- Storage: bucket privato learning-pdfs (PDF didattici)
@@ -286,7 +286,7 @@ for insert
 to authenticated
 with check (
   bucket_id = 'learning-pdfs'
-  and public.get_my_role() = 'amministratore'
+  and public.get_my_role() = 'admin'
 );
 
 drop policy if exists "learning_pdfs_select_visible" on storage.objects;
@@ -302,7 +302,7 @@ using (
     where lr.resource_type = 'pdf'
       and lr.file_url = storage.objects.name
       and (
-        public.get_my_role() = 'amministratore'
+        public.get_my_role() = 'admin'
         or (
           public.get_my_role() is not null
           and lr.visibility @> ARRAY[public.get_my_role()]
@@ -318,5 +318,5 @@ for delete
 to authenticated
 using (
   bucket_id = 'learning-pdfs'
-  and public.get_my_role() = 'amministratore'
+  and public.get_my_role() = 'admin'
 );

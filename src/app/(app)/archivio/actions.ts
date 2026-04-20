@@ -31,7 +31,7 @@ const uploadSchema = z.object({
 export async function uploadLearningPdfAction(formData: FormData) {
   const profile = await requireUser();
   assertArchivioSection(profile);
-  await requireRole(["amministratore"]);
+  await requireRole(["admin"]);
 
   const parsed = uploadSchema.parse({
     title: formData.get("title"),

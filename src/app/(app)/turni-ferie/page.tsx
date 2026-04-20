@@ -51,7 +51,7 @@ export default async function TurniFeriePage({ searchParams }: TurniFeriePagePro
   const { yearMonth, monthStart, monthEnd, monthLabel } = resolveTurniFerieMonth(sp.m);
 
   let assigneeId: string | null = null;
-  if (profile.role === "amministratore" && sp.assignee?.trim()) {
+  if (profile.role === "admin" && sp.assignee?.trim()) {
     const parsed = z.string().uuid().safeParse(sp.assignee.trim());
     assigneeId = parsed.success ? parsed.data : null;
   }
@@ -67,7 +67,7 @@ export default async function TurniFeriePage({ searchParams }: TurniFeriePagePro
 
   const overlap = countShiftOverlapAlerts(shiftUi);
   const isTrainee = profile.role === "specializzando";
-  const isSchedulerOrAdmin = profile.role === "addetto_turni" || profile.role === "amministratore";
+  const isSchedulerOrAdmin = profile.role === "addetto_turni" || profile.role === "admin";
 
   const showGlobalTrainee = isTrainee && overlap.total > 0;
   const showGlobalStaff = isSchedulerOrAdmin && conflicts.length > 0;
@@ -102,7 +102,7 @@ export default async function TurniFeriePage({ searchParams }: TurniFeriePagePro
           </Link>
         </div>
 
-        {profile.role === "amministratore" ? (
+        {profile.role === "admin" ? (
           <form action="/turni-ferie" method="get" className="flex flex-wrap items-center gap-2">
             <input type="hidden" name="m" value={yearMonth} />
             {soloConflitti ? <input type="hidden" name="conflitti" value="1" /> : null}

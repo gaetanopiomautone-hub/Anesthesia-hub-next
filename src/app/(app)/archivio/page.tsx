@@ -25,7 +25,7 @@ function resourceAudience(resource: LearningResourceRow) {
 export default async function ArchivioPage() {
   const profile = await requireSection("archivio");
   const resources = await listLearningResources();
-  const isAdmin = profile.role === "amministratore";
+  const isAdmin = profile.role === "admin";
 
   return (
     <div className="space-y-6">
@@ -36,7 +36,7 @@ export default async function ArchivioPage() {
       />
 
       {isAdmin ? (
-        <Card title="Carica PDF (solo amministratore)">
+        <Card title="Carica PDF (solo admin)">
           <form action={uploadLearningPdfAction} className="grid gap-4">
             <div className="grid gap-2">
               <label className="text-sm font-medium">Titolo</label>
@@ -48,7 +48,7 @@ export default async function ArchivioPage() {
             </div>
             <div className="grid gap-2">
               <span className="text-sm font-medium">Visibile a</span>
-              <div className="flex flex-wrap gap-4">{roleCheckbox("specializzando")}{roleCheckbox("addetto_turni")}{roleCheckbox("tutor_strutturato")}{roleCheckbox("amministratore")}</div>
+              <div className="flex flex-wrap gap-4">{roleCheckbox("specializzando")}{roleCheckbox("addetto_turni")}{roleCheckbox("tutor_strutturato")}{roleCheckbox("admin")}</div>
             </div>
             <div className="grid gap-2">
               <label className="text-sm font-medium">File PDF</label>

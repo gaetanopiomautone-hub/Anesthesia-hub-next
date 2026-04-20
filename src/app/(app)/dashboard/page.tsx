@@ -12,8 +12,8 @@ export default async function DashboardPage() {
   const roleHighlights = {
     specializzando: "Vedi i tuoi turni, inserisci ferie, aggiorna il logbook e controlla la progressione procedure.",
     addetto_turni: "Monitora copertura sale, assegna turni e valida richieste che impattano la pianificazione.",
-    amministratore: "Controlla permessi, approvazioni, materiali didattici e governance complessiva del reparto.",
-    tutor_strutturato: "Supervisiona l'attivita' formativa, verifica i logbook e consulta i report di autonomia.",
+  admin: "Controlla permessi, approvazioni, materiali didattici e governance complessiva del reparto.",
+    tutor: "Supervisiona l'attivita' formativa, verifica i logbook e consulta i report di autonomia.",
   } as const;
 
   return (
@@ -74,11 +74,11 @@ export default async function DashboardPage() {
 
         <Card title="Attenzione" description="Notifiche utili per il ruolo corrente">
           <ul className="space-y-3 text-sm text-muted-foreground">
-            {user.role === "addetto_turni" || user.role === "amministratore" ? (
+            { || user.role === "admin" ? (
               <li>Verifica le richieste in attesa prima di modificare turni critici.</li>
             ) : null}
             {user.role === "specializzando" ? <li>Controlla copertura e tutoraggio prima di richiedere ferie.</li> : null}
-            {user.role === "tutor_strutturato" ? <li>Usa il logbook per feedback formativo, senza dati identificativi paziente.</li> : null}
+            {user.role === "tutor" ? <li>Usa il logbook per feedback formativo, senza dati identificativi paziente.</li> : null}
             <li>Le procedure vengono registrate senza alcun identificativo paziente.</li>
           </ul>
         </Card>

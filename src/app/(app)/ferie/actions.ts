@@ -10,10 +10,10 @@ import { canAccess } from "@/lib/auth/permissions";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 const leaveRequestSchema = z.object({
-  requestType: z.enum(["ferie", "desiderata"]),
+  requestType: z.enum(["ferie", "desiderata", "vacation", "permission", "sick_leave", "conference", "other"]),
   startDate: z.string().min(1),
   endDate: z.string().min(1),
-  note: z.string().max(500).optional(),
+  reason: z.string().max(500).optional(),
 });
 
 const leaveRequestUpdateSchema = leaveRequestSchema.extend({
@@ -58,7 +58,7 @@ async function requireFerieTrainee() {
 async function requireFerieApprover() {
   const profile = await requireUser();
   if (!canAccess(profile.role, "ferie")) redirect("/forbidden");
-  if (profile.role !== "addetto_turni" && profile.role !== "amministratore") redirect("/forbidden");
+  if (profile.role !== "addetto_turni" && profile.role !== "admin") redirect("/forbidden");
   return profile;
 }
 
@@ -67,7 +67,7 @@ function parseLeaveRequestForm(formData: FormData) {
     requestType: formData.get("requestType"),
     startDate: formData.get("startDate"),
     endDate: formData.get("endDate"),
-    note: formData.get("note"),
+    reason: formData.get("reason") ?? formData.get("note"),
   });
   if (!result.success) {
     redirectToFerieWithError("Controlla i campi della richiesta e riprova.");
@@ -81,7 +81,7 @@ function parseLeaveUpdateForm(formData: FormData) {
     requestType: formData.get("requestType"),
     startDate: formData.get("startDate"),
     endDate: formData.get("endDate"),
-    note: formData.get("note"),
+    reason: formData.get("reason") ?? formData.get("note"),
   });
   if (!result.success) {
     redirectToFerieWithError("Controlla i campi della richiesta e riprova.");
@@ -111,21 +111,28 @@ function revalidateLeaveViews() {
   revalidatePath("/dashboard");
 }
 
+function normalizeLeaveRequestType(requestType: z.infer<typeof leaveRequestSchema>["requestType"]) {
+  if (requestType === "ferie") return "vacation";
+  if (requestType === "desiderata") return "other";
+  return requestType;
+}
+
 export async function createLeaveRequestAction(formData: FormData) {
   const profile = await requireFerieTrainee();
   const parsed = parseLeaveRequestForm(formData);
   requireDateOrderOrRedirect(parsed.startDate, parsed.endDate);
+  const requestType = normalizeLeaveRequestType(parsed.requestType);
 
   const supabase = await createServerSupabaseClient();
   const { error } = await supabase.from("leave_requests").insert({
-    requester_profile_id: profile.id,
-    request_type: parsed.requestType,
+    user_id: profile.id,
+    request_type: requestType,
     start_date: parsed.startDate,
     end_date: parsed.endDate,
-    status: "in_attesa",
-    note: parsed.note?.trim() ? parsed.note.trim() : null,
-    approved_by: null,
-    approved_at: null,
+    status: "pending",
+    reason: parsed.reason?.trim() ? parsed.reason.trim() : null,
+    reviewed_by: null,
+    reviewed_at: null,
   });
 
   if (error) {
@@ -140,12 +147,13 @@ export async function updateLeaveRequestAction(formData: FormData) {
   const profile = await requireFerieTrainee();
   const parsed = parseLeaveUpdateForm(formData);
   requireDateOrderOrRedirect(parsed.startDate, parsed.endDate);
+  const requestType = normalizeLeaveRequestType(parsed.requestType);
 
   const supabase = await createServerSupabaseClient();
 
   const { data: existing, error: existingError } = await supabase
     .from("leave_requests")
-    .select("id, requester_profile_id, status")
+    .select("id, user_id, status")
     .eq("id", parsed.id)
     .single();
 
@@ -153,25 +161,25 @@ export async function updateLeaveRequestAction(formData: FormData) {
     redirectToFerieWithError("Richiesta non trovata o non accessibile.");
   }
 
-  if (existing.requester_profile_id !== profile.id) {
+  if (existing.user_id !== profile.id) {
     redirectToFerieWithError("Non puoi modificare richieste di altri utenti.");
   }
 
-  if (existing.status !== "in_attesa") {
+  if (existing.status !== "pending") {
     redirectToFerieWithError("Puoi modificare solo richieste ancora in attesa.");
   }
 
   const { data: updated, error } = await supabase
     .from("leave_requests")
     .update({
-      request_type: parsed.requestType,
+      request_type: requestType,
       start_date: parsed.startDate,
       end_date: parsed.endDate,
-      note: parsed.note?.trim() ? parsed.note.trim() : null,
+      reason: parsed.reason?.trim() ? parsed.reason.trim() : null,
     })
     .eq("id", parsed.id)
-    .eq("requester_profile_id", profile.id)
-    .eq("status", "in_attesa")
+    .eq("user_id", profile.id)
+    .eq("status", "pending")
     .select("id");
 
   if (error) {
@@ -194,7 +202,7 @@ export async function approveLeaveRequestAction(formData: FormData) {
 
   const { data: existing, error: existingError } = await supabase
     .from("leave_requests")
-    .select("id, status, note")
+    .select("id, status")
     .eq("id", parsed.id)
     .single();
 
@@ -202,26 +210,22 @@ export async function approveLeaveRequestAction(formData: FormData) {
     redirectToFerieWithError("Richiesta non trovata o non accessibile.");
   }
 
-  if (existing.status !== "in_attesa") {
+  if (existing.status !== "pending") {
     redirectToFerieWithError("Puoi approvare solo richieste ancora in attesa.");
   }
 
-  const adminNote = parsed.adminNote?.trim();
-  const mergedNote =
-    adminNote && adminNote.length > 0
-      ? [existing.note?.trim() ? existing.note.trim() : null, `Nota approvazione: ${adminNote}`].filter(Boolean).join("\n\n")
-      : undefined;
+  const reviewNote = parsed.adminNote?.trim();
 
   const { data: updated, error } = await supabase
     .from("leave_requests")
     .update({
-      status: "approvato",
-      approved_by: profile.id,
-      approved_at: new Date().toISOString(),
-      ...(mergedNote ? { note: mergedNote } : {}),
+      status: "approved",
+      reviewed_by: profile.id,
+      reviewed_at: new Date().toISOString(),
+      ...(reviewNote ? { review_note: reviewNote } : {}),
     })
     .eq("id", parsed.id)
-    .eq("status", "in_attesa")
+    .eq("status", "pending")
     .select("id");
 
   if (error) {
@@ -244,7 +248,7 @@ export async function rejectLeaveRequestAction(formData: FormData) {
 
   const { data: existing, error: existingError } = await supabase
     .from("leave_requests")
-    .select("id, status, note")
+    .select("id, status")
     .eq("id", parsed.id)
     .single();
 
@@ -252,26 +256,22 @@ export async function rejectLeaveRequestAction(formData: FormData) {
     redirectToFerieWithError("Richiesta non trovata o non accessibile.");
   }
 
-  if (existing.status !== "in_attesa") {
+  if (existing.status !== "pending") {
     redirectToFerieWithError("Puoi rifiutare solo richieste ancora in attesa.");
   }
 
-  const adminNote = parsed.adminNote?.trim();
-  const mergedNote =
-    adminNote && adminNote.length > 0
-      ? [existing.note?.trim() ? existing.note.trim() : null, `Motivo rifiuto: ${adminNote}`].filter(Boolean).join("\n\n")
-      : undefined;
+  const reviewNote = parsed.adminNote?.trim();
 
   const { data: updated, error } = await supabase
     .from("leave_requests")
     .update({
-      status: "rifiutato",
-      approved_by: profile.id,
-      approved_at: new Date().toISOString(),
-      ...(mergedNote ? { note: mergedNote } : {}),
+      status: "rejected",
+      reviewed_by: profile.id,
+      reviewed_at: new Date().toISOString(),
+      ...(reviewNote ? { review_note: reviewNote } : {}),
     })
     .eq("id", parsed.id)
-    .eq("status", "in_attesa")
+    .eq("status", "pending")
     .select("id");
 
   if (error) {

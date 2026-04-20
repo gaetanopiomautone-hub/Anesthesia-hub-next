@@ -119,7 +119,7 @@ export default async function LogbookPage({ searchParams }: LogbookPageProps) {
           {canRecord ? (
             procedures.length === 0 ? (
               <p className="text-sm text-muted-foreground">
-                Il catalogo procedure e&apos; vuoto o non attivo. Contatta l&apos;amministratore per popolare procedure_catalog.
+                Il catalogo procedure e&apos; vuoto o non attivo. Contatta l&apos;admin per popolare procedure_catalog.
               </p>
             ) : (
               <form action={createLogbookEntryAction} className="grid gap-4">

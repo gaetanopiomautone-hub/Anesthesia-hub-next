@@ -14,7 +14,7 @@ type AppSection =
 const permissionMatrix: Record<AppRole, AppSection[]> = {
   specializzando: ["dashboard", "turni", "turni-ferie", "ferie", "universita", "archivio", "logbook", "report"],
   addetto_turni: ["dashboard", "turni", "turni-ferie", "ferie", "universita", "archivio", "report"],
-  amministratore: ["dashboard", "turni", "turni-ferie", "ferie", "universita", "archivio", "logbook", "report", "admin"],
+  admin: ["dashboard", "turni", "turni-ferie", "ferie", "universita", "archivio", "logbook", "report", "admin"],
   tutor_strutturato: ["dashboard", "turni", "universita", "archivio", "logbook", "report"],
 };
 
