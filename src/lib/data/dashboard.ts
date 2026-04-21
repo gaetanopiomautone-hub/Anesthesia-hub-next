@@ -7,10 +7,10 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type LeaveRequestRow = {
   id: string;
-  request_type: "ferie" | "desiderata";
+  request_type: "vacation" | "permission" | "sick_leave" | "conference" | "other";
   start_date: string;
   end_date: string;
-  status: "in_attesa" | "approvato" | "rifiutato";
+  status: "pending" | "approved" | "rejected" | "cancelled";
 };
 
 type LogbookRow = {
@@ -65,14 +65,14 @@ function shiftKindLabel(kind: ShiftRow["shift_kind"]) {
 
 export function leaveStatusLabel(status: LeaveRequestRow["status"]) {
   switch (status) {
-    case "in_attesa":
+    case "pending":
       return "In attesa";
-    case "approvato":
+    case "approved":
       return "Approvato";
-    case "rifiutato":
+    case "rejected":
       return "Rifiutato";
-    default:
-      return status;
+    case "cancelled":
+      return "Annullato";
   }
 }
 
@@ -103,11 +103,11 @@ export function autonomyLabel(level: LogbookRow["autonomy_level"]) {
 }
 
 function canReadLeaveRequests(role: AppRole) {
-  return role === "specializzando" || role === "addetto_turni" || role === "admin";
+  return role === "specializzando" || role === "tutor" || role === "admin";
 }
 
 function canReadLogbookEntries(role: AppRole) {
-  return role === "specializzando" || role === "tutor_strutturato" || role === "admin";
+  return role === "specializzando" || role === "tutor" || role === "admin";
 }
 
 async function countShiftsInRangeByArea(params: {
@@ -248,7 +248,7 @@ export async function getDashboardData(profile: CurrentUserProfile) {
       .limit(5);
 
     if (profile.role === "specializzando") {
-      leaveQuery = leaveQuery.eq("requester_profile_id", profile.id);
+      leaveQuery = leaveQuery.eq("user_id", profile.id);
     }
 
     const { data: leaves, error: leaveError } = await leaveQuery;
@@ -263,8 +263,8 @@ export async function getDashboardData(profile: CurrentUserProfile) {
       const { count, error } = await supabase
         .from("leave_requests")
         .select("id", { count: "exact", head: true })
-        .eq("requester_profile_id", profile.id)
-        .eq("status", "in_attesa");
+        .eq("user_id", profile.id)
+        .eq("status", "pending");
 
       if (error) {
         throw new Error(`leave_requests pending count failed: ${error.message}`);
@@ -275,7 +275,7 @@ export async function getDashboardData(profile: CurrentUserProfile) {
       const { count, error } = await supabase
         .from("leave_requests")
         .select("id", { count: "exact", head: true })
-        .eq("status", "in_attesa");
+        .eq("status", "pending");
 
       if (error) {
         throw new Error(`leave_requests pending count failed: ${error.message}`);

@@ -19,7 +19,7 @@ export type ShiftListRow = {
 
 export type LeaveMonthRow = {
   id: string;
-  requester_profile_id: string;
+  user_id: string;
   request_type: LeaveRequestType;
   start_date: string;
   end_date: string;
@@ -112,21 +112,21 @@ function leavesForAssigneeOnDate(
   leaves: LeaveMonthRow[],
 ): LeaveMonthRow[] {
   if (!assigneeId) return [];
-  return leaves.filter((l) => l.requester_profile_id === assigneeId && dateInLeaveRange(shiftDate, l));
+  return leaves.filter((l) => l.user_id === assigneeId && dateInLeaveRange(shiftDate, l));
 }
 
 function pickLeaveStatusForDisplay(candidates: LeaveMonthRow[]): "none" | LeaveRequestStatus {
   if (candidates.length === 0) return "none";
-  if (candidates.some((l) => l.status === "approvato")) return "approvato";
-  if (candidates.some((l) => l.status === "in_attesa")) return "in_attesa";
-  if (candidates.some((l) => l.status === "rifiutato")) return "rifiutato";
+  if (candidates.some((l) => l.status === "approved")) return "approved";
+  if (candidates.some((l) => l.status === "pending")) return "pending";
+  if (candidates.some((l) => l.status === "rejected")) return "rejected";
   return "none";
 }
 
 function pickAlert(assigneeId: string | null, candidates: LeaveMonthRow[]): ShiftLeaveAlert {
   if (!assigneeId) return "none";
-  const hasApproved = candidates.some((l) => l.status === "approvato");
-  const hasPending = candidates.some((l) => l.status === "in_attesa");
+  const hasApproved = candidates.some((l) => l.status === "approved");
+  const hasPending = candidates.some((l) => l.status === "pending");
   if (hasApproved) return "hard";
   if (hasPending) return "soft";
   return "none";
@@ -145,12 +145,12 @@ export function buildShiftRowsWithLeaveUi(shifts: ShiftListRow[], leaves: LeaveM
 export function buildConflictRows(shifts: ShiftListRow[], leaves: LeaveMonthRow[], monthStart: string, monthEnd: string): ConflictRow[] {
   const rows: ConflictRow[] = [];
   for (const leave of leaves) {
-    if (leave.status === "rifiutato") continue;
+    if (leave.status === "rejected") continue;
     if (leave.end_date < monthStart || leave.start_date > monthEnd) continue;
 
     const impacted = shifts.filter(
       (s) =>
-        s.assignee_profile_id === leave.requester_profile_id &&
+        s.assignee_profile_id === leave.user_id &&
         s.assignee_profile_id !== null &&
         dateInLeaveRange(s.shift_date, leave),
     );
@@ -158,7 +158,7 @@ export function buildConflictRows(shifts: ShiftListRow[], leaves: LeaveMonthRow[
     rows.push({
       leave,
       impactedShifts: impacted.sort((a, b) => a.shift_date.localeCompare(b.shift_date) || a.shift_kind.localeCompare(b.shift_kind)),
-      kind: leave.status === "approvato" ? "hard" : "soft",
+      kind: leave.status === "approved" ? "hard" : "soft",
     });
   }
   return rows.sort((a, b) => a.leave.start_date.localeCompare(b.leave.start_date) || a.leave.id.localeCompare(b.leave.id));
@@ -254,12 +254,12 @@ async function listLeavesOverlappingMonth(params: { monthStart: string; monthEnd
     .select(
       `
       id,
-      requester_profile_id,
+      user_id,
       request_type,
       start_date,
       end_date,
       status,
-      requester:profiles!leave_requests_requester_profile_id_fkey ( full_name, email )
+      requester:profiles!leave_requests_user_id_fkey ( full_name, email )
     `,
     )
     .lte("start_date", params.monthEnd)
@@ -267,7 +267,7 @@ async function listLeavesOverlappingMonth(params: { monthStart: string; monthEnd
     .order("start_date", { ascending: true });
 
   if (!params.viewAll && params.assigneeId) {
-    query = query.eq("requester_profile_id", params.assigneeId);
+    query = query.eq("user_id", params.assigneeId);
   }
 
   const { data, error } = await query;

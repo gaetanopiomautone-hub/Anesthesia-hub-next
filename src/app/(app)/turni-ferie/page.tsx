@@ -28,8 +28,9 @@ type TurniFeriePageProps = {
 
 function leaveStatusBadge(status: ShiftWithLeaveUi["leaveStatus"]) {
   if (status === "none") return <span className="text-muted-foreground">—</span>;
-  if (status === "in_attesa") return <Badge variant="warning">{leaveStatusLabelItalian(status)}</Badge>;
-  if (status === "approvato") return <Badge variant="danger">{leaveStatusLabelItalian(status)}</Badge>;
+  if (status === "pending") return <Badge variant="warning">{leaveStatusLabelItalian(status)}</Badge>;
+  if (status === "approved") return <Badge variant="default">{leaveStatusLabelItalian(status)}</Badge>;
+  if (status === "rejected") return <Badge variant="danger">{leaveStatusLabelItalian(status)}</Badge>;
   return <Badge variant="default">{leaveStatusLabelItalian(status)}</Badge>;
 }
 
@@ -67,7 +68,7 @@ export default async function TurniFeriePage({ searchParams }: TurniFeriePagePro
 
   const overlap = countShiftOverlapAlerts(shiftUi);
   const isTrainee = profile.role === "specializzando";
-  const isSchedulerOrAdmin = profile.role === "addetto_turni" || profile.role === "admin";
+  const isSchedulerOrAdmin = profile.role === "tutor" || profile.role === "admin";
 
   const showGlobalTrainee = isTrainee && overlap.total > 0;
   const showGlobalStaff = isSchedulerOrAdmin && conflicts.length > 0;
@@ -268,7 +269,7 @@ export default async function TurniFeriePage({ searchParams }: TurniFeriePagePro
                   header: "Stato richiesta",
                   render: (row) => (
                     <div className="flex flex-wrap gap-2">
-                      <Badge variant={row.leave.status === "in_attesa" ? "warning" : "default"}>
+                      <Badge variant={row.leave.status === "pending" ? "warning" : "default"}>
                         {leaveStatusLabelItalian(row.leave.status)}
                       </Badge>
                       <Badge variant={row.kind === "hard" ? "danger" : "warning"}>

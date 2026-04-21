@@ -4,6 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { roleLabels } from "@/lib/auth/roles";
 import { autonomyLabel, getDashboardData, leaveStatusLabel, supervisionLabel } from "@/lib/data/dashboard";
+import { leaveTypeLabelItalian } from "@/lib/data/leave-requests";
 
 export default async function DashboardPage() {
   const user = await requireSection("dashboard");
@@ -11,9 +12,8 @@ export default async function DashboardPage() {
 
   const roleHighlights = {
     specializzando: "Vedi i tuoi turni, inserisci ferie, aggiorna il logbook e controlla la progressione procedure.",
-    addetto_turni: "Monitora copertura sale, assegna turni e valida richieste che impattano la pianificazione.",
-  admin: "Controlla permessi, approvazioni, materiali didattici e governance complessiva del reparto.",
-    tutor: "Supervisiona l'attivita' formativa, verifica i logbook e consulta i report di autonomia.",
+    tutor: "Monitora copertura sale, valida richieste e supervisiona la progressione formativa.",
+    admin: "Controlla permessi, approvazioni, materiali didattici e governance complessiva del reparto.",
   } as const;
 
   return (
@@ -116,7 +116,7 @@ export default async function DashboardPage() {
                 <div key={leave.id} className="rounded-2xl border border-border p-4">
                   <div className="flex items-center justify-between gap-3">
                     <p className="font-medium">
-                      {leave.request_type === "ferie" ? "Ferie" : "Desiderata"}
+                      {leaveTypeLabelItalian(leave.request_type)}
                     </p>
                     <Badge>{leaveStatusLabel(leave.status)}</Badge>
                   </div>

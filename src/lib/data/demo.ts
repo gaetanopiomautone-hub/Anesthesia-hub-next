@@ -20,7 +20,7 @@ export const demoUsers: DemoUser[] = [
     id: "usr-turni-1",
     fullName: "Marco Rinaldi",
     email: "marco.rinaldi@policlinicosandonato.it",
-    role: "addetto_turni",
+    role: "tutor",
     residencyYear: null,
   },
   {
@@ -34,7 +34,7 @@ export const demoUsers: DemoUser[] = [
     id: "usr-tutor-1",
     fullName: "Davide Sala",
     email: "davide.sala@policlinicosandonato.it",
-    role: "tutor_strutturato",
+    role: "tutor",
     residencyYear: null,
   },
 ];
