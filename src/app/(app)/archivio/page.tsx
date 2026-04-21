@@ -48,7 +48,11 @@ export default async function ArchivioPage() {
             </div>
             <div className="grid gap-2">
               <span className="text-sm font-medium">Visibile a</span>
-              <div className="flex flex-wrap gap-4">{roleCheckbox("specializzando")}{roleCheckbox("addetto_turni")}{roleCheckbox("tutor_strutturato")}{roleCheckbox("admin")}</div>
+              <div className="flex flex-wrap gap-4">
+                {roleCheckbox("specializzando")}
+                {roleCheckbox("tutor")}
+                {roleCheckbox("admin")}
+              </div>
             </div>
             <div className="grid gap-2">
               <label className="text-sm font-medium">File PDF</label>
