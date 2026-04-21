@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { unstable_rethrow } from "next/navigation";
 import { z } from "zod";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -47,9 +48,8 @@ function impactedSummary(shifts: ShiftListRow[]) {
 }
 
 export default async function TurniFeriePage({ searchParams }: TurniFeriePageProps) {
-  const profile = await requireSection("turni-ferie");
-
   try {
+    const profile = await requireSection("turni-ferie");
     const sp = (await searchParams) ?? {};
     const { yearMonth, monthStart, monthEnd, monthLabel } = resolveTurniFerieMonth(sp.m);
 
@@ -300,6 +300,7 @@ export default async function TurniFeriePage({ searchParams }: TurniFeriePagePro
     </div>
     );
   } catch (error) {
+    unstable_rethrow(error);
     console.error("TURNI-FERIE ERROR:", error);
     const detail =
       error instanceof Error
