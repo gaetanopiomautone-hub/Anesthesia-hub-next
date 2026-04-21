@@ -28,7 +28,7 @@ export type LeaveRequestRow = {
   approver?: { full_name: string | null; email: string | null } | null;
 };
 
-export function leaveStatusLabelItalian(status: LeaveRequestStatus) {
+export function leaveStatusLabelItalian(status: LeaveRequestStatus | null | undefined) {
   switch (status) {
     case "pending":
       return "In attesa";
@@ -38,8 +38,10 @@ export function leaveStatusLabelItalian(status: LeaveRequestStatus) {
       return "Rifiutata";
     case "cancelled":
       return "Annullata";
-    default:
-      return typeof status === "string" && status.trim() ? status : "Sconosciuto";
+    default: {
+      const fallback = String(status ?? "").trim();
+      return fallback ? fallback : "Sconosciuto";
+    }
   }
 }
 
