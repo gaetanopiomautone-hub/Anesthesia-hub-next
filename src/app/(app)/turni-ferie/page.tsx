@@ -48,37 +48,39 @@ function impactedSummary(shifts: ShiftListRow[]) {
 
 export default async function TurniFeriePage({ searchParams }: TurniFeriePageProps) {
   const profile = await requireSection("turni-ferie");
-  const sp = (await searchParams) ?? {};
-  const { yearMonth, monthStart, monthEnd, monthLabel } = resolveTurniFerieMonth(sp.m);
 
-  let assigneeId: string | null = null;
-  if (profile.role === "admin" && sp.assignee?.trim()) {
-    const parsed = z.string().uuid().safeParse(sp.assignee.trim());
-    assigneeId = parsed.success ? parsed.data : null;
-  }
+  try {
+    const sp = (await searchParams) ?? {};
+    const { yearMonth, monthStart, monthEnd, monthLabel } = resolveTurniFerieMonth(sp.m);
 
-  const { shiftUi, conflicts, assigneeOptions } = await loadTurniFeriePageData(profile, {
-    monthStart,
-    monthEnd,
-    assigneeId,
-  });
+    let assigneeId: string | null = null;
+    if (profile.role === "admin" && sp.assignee?.trim()) {
+      const parsed = z.string().uuid().safeParse(sp.assignee.trim());
+      assigneeId = parsed.success ? parsed.data : null;
+    }
 
-  const soloConflitti = sp.conflitti === "1" || sp.conflitti === "true";
-  const shiftRowsFiltered = soloConflitti ? shiftUi.filter((r) => r.alert !== "none") : shiftUi;
+    const { shiftUi, conflicts, assigneeOptions } = await loadTurniFeriePageData(profile, {
+      monthStart,
+      monthEnd,
+      assigneeId,
+    });
 
-  const overlap = countShiftOverlapAlerts(shiftUi);
-  const isTrainee = profile.role === "specializzando";
-  const isSchedulerOrAdmin = profile.role === "tutor" || profile.role === "admin";
+    const soloConflitti = sp.conflitti === "1" || sp.conflitti === "true";
+    const shiftRowsFiltered = soloConflitti ? shiftUi.filter((r) => r.alert !== "none") : shiftUi;
 
-  const showGlobalTrainee = isTrainee && overlap.total > 0;
-  const showGlobalStaff = isSchedulerOrAdmin && conflicts.length > 0;
+    const overlap = countShiftOverlapAlerts(shiftUi);
+    const isTrainee = profile.role === "specializzando";
+    const isSchedulerOrAdmin = profile.role === "tutor" || profile.role === "admin";
 
-  const prevM = adjacentMonthYearMonth(yearMonth, -1);
-  const nextM = adjacentMonthYearMonth(yearMonth, 1);
-  const assigneeQuery = assigneeId ? `&assignee=${assigneeId}` : "";
-  const conflittiQuery = soloConflitti ? "&conflitti=1" : "";
+    const showGlobalTrainee = isTrainee && overlap.total > 0;
+    const showGlobalStaff = isSchedulerOrAdmin && conflicts.length > 0;
 
-  return (
+    const prevM = adjacentMonthYearMonth(yearMonth, -1);
+    const nextM = adjacentMonthYearMonth(yearMonth, 1);
+    const assigneeQuery = assigneeId ? `&assignee=${assigneeId}` : "";
+    const conflittiQuery = soloConflitti ? "&conflitti=1" : "";
+
+    return (
     <div className="space-y-6">
       <PageHeader
         eyebrow="Pianificazione"
@@ -296,5 +298,26 @@ export default async function TurniFeriePage({ searchParams }: TurniFeriePagePro
         </div>
       ) : null}
     </div>
-  );
+    );
+  } catch (error) {
+    console.error("TURNI-FERIE ERROR:", error);
+    const detail =
+      error instanceof Error
+        ? `${error.name}: ${error.message}${error.stack ? `\n\n${error.stack}` : ""}`
+        : typeof error === "object" && error !== null
+          ? JSON.stringify(error, null, 2)
+          : String(error);
+
+    return (
+      <div className="space-y-4 rounded-xl border border-destructive/50 bg-destructive/10 p-6 text-sm text-foreground">
+        <h2 className="text-lg font-semibold text-destructive">Errore caricamento Turni &amp; Ferie</h2>
+        <p className="text-muted-foreground">
+          Copia il testo qui sotto (o uno screenshot) e incollalo nel ticket: contiene il messaggio reale dell&apos;errore server.
+        </p>
+        <pre className="max-h-[min(480px,70vh)] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-card p-4 font-mono text-xs">
+          {detail}
+        </pre>
+      </div>
+    );
+  }
 }
