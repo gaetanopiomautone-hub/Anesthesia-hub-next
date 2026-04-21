@@ -3,6 +3,7 @@ import { cache } from "react";
 import { redirect } from "next/navigation";
 
 import { canAccess } from "@/lib/auth/permissions";
+import { appRoles } from "@/lib/auth/roles";
 import type { AppRole } from "@/lib/auth/roles";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -50,6 +51,10 @@ export const getCurrentUserProfile = cache(async (): Promise<CurrentUserProfile 
     .single();
 
   if (profileError || !profile || !profile.is_active) {
+    return null;
+  }
+
+  if (!appRoles.includes(profile.role as AppRole)) {
     return null;
   }
 
