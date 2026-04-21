@@ -47,8 +47,9 @@ function firstOrNull<T>(value: T | T[] | null | undefined): T | null {
   return Array.isArray(value) ? (value[0] ?? null) : value;
 }
 
-export function shiftKindLabelItalian(kind: ShiftKind) {
-  switch (kind) {
+export function shiftKindLabelItalian(kind: ShiftKind | string | null | undefined) {
+  const k = String(kind ?? "").trim();
+  switch (k as ShiftKind) {
     case "mattina":
       return "Mattina";
     case "pomeriggio":
@@ -62,7 +63,7 @@ export function shiftKindLabelItalian(kind: ShiftKind) {
     case "reperibilita":
       return "Reperibilità";
     default:
-      return kind;
+      return k || "—";
   }
 }
 
@@ -72,8 +73,9 @@ function areaTypeShort(areaType: "sala_operatoria" | "rianimazione") {
 
 export function shiftAreaLabel(shift: ShiftListRow) {
   const loc = shift.clinical_locations;
-  if (!loc) return "—";
-  return `${loc.name} · ${areaTypeShort(loc.area_type)}`;
+  if (!loc || !String(loc.name ?? "").trim()) return "—";
+  const areaType = loc.area_type === "rianimazione" ? "rianimazione" : "sala_operatoria";
+  return `${String(loc.name).trim()} · ${areaTypeShort(areaType)}`;
 }
 
 /** `m` query: `yyyy-MM`. Default: mese corrente (server). */
@@ -103,7 +105,11 @@ export function adjacentMonthYearMonth(yearMonth: string, delta: -1 | 1): string
 }
 
 export function dateInLeaveRange(shiftDate: string, leave: Pick<LeaveMonthRow, "start_date" | "end_date">) {
-  return shiftDate >= leave.start_date && shiftDate <= leave.end_date;
+  const sd = String(shiftDate ?? "").trim();
+  const start = String(leave.start_date ?? "").trim();
+  const end = String(leave.end_date ?? "").trim();
+  if (!sd || !start || !end) return false;
+  return sd >= start && sd <= end;
 }
 
 function leavesForAssigneeOnDate(
@@ -134,11 +140,19 @@ function pickAlert(assigneeId: string | null, candidates: LeaveMonthRow[]): Shif
 
 export function buildShiftRowsWithLeaveUi(shifts: ShiftListRow[], leaves: LeaveMonthRow[]): ShiftWithLeaveUi[] {
   return shifts.map((shift) => {
-    const assigneeId = shift.assignee_profile_id;
-    const candidates = assigneeId ? leavesForAssigneeOnDate(assigneeId, shift.shift_date, leaves) : [];
+    const assigneeId = shift.assignee_profile_id ?? null;
+    const shiftDate = String(shift.shift_date ?? "").trim();
+    const candidates = assigneeId ? leavesForAssigneeOnDate(assigneeId, shiftDate, leaves) : [];
     const leaveStatus = pickLeaveStatusForDisplay(candidates);
     const alert = assigneeId ? pickAlert(assigneeId, candidates) : "none";
-    return { ...shift, leaveStatus, alert };
+    return {
+      ...shift,
+      shift_date: shiftDate,
+      shift_kind: (String(shift.shift_kind ?? "giornaliero").trim() || "giornaliero") as ShiftKind,
+      assignee_profile_id: assigneeId,
+      leaveStatus,
+      alert,
+    };
   });
 }
 
@@ -146,7 +160,10 @@ export function buildConflictRows(shifts: ShiftListRow[], leaves: LeaveMonthRow[
   const rows: ConflictRow[] = [];
   for (const leave of leaves) {
     if (leave.status === "rejected") continue;
-    if (leave.end_date < monthStart || leave.start_date > monthEnd) continue;
+    const leaveStart = String(leave.start_date ?? "").trim();
+    const leaveEnd = String(leave.end_date ?? "").trim();
+    if (!leaveStart || !leaveEnd) continue;
+    if (leaveEnd < monthStart || leaveStart > monthEnd) continue;
 
     const impacted = shifts.filter(
       (s) =>
@@ -245,10 +262,10 @@ async function listShiftsInMonth(params: {
     };
 
     return {
-      id: row.id,
-      shift_date: row.shift_date,
-      shift_kind: row.shift_kind as ShiftKind,
-      assignee_profile_id: row.assignee_profile_id,
+      id: String(row.id ?? ""),
+      shift_date: String(row.shift_date ?? "").trim(),
+      shift_kind: (String(row.shift_kind ?? "giornaliero").trim() || "giornaliero") as ShiftKind,
+      assignee_profile_id: row.assignee_profile_id ?? null,
       clinical_locations: firstOrNull(row.clinical_locations),
       assignee: firstOrNull(row.assignee),
     } satisfies ShiftListRow;
@@ -291,6 +308,10 @@ async function listLeavesOverlappingMonth(params: { monthStart: string; monthEnd
 
     return {
       ...row,
+      id: String(row.id ?? ""),
+      user_id: String(row.user_id ?? ""),
+      start_date: String(row.start_date ?? "").trim(),
+      end_date: String(row.end_date ?? "").trim(),
       request_type: row.request_type as LeaveRequestType,
       status: row.status as LeaveRequestStatus,
       requester: firstOrNull(row.requester),
