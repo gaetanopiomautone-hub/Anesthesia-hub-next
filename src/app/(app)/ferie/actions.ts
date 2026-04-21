@@ -58,7 +58,7 @@ async function requireFerieTrainee() {
 async function requireFerieApprover() {
   const profile = await requireUser();
   if (!canAccess(profile.role, "ferie")) redirect("/forbidden");
-  if (profile.role !== "addetto_turni" && profile.role !== "admin") redirect("/forbidden");
+  if (profile.role !== "tutor" && profile.role !== "admin") redirect("/forbidden");
   return profile;
 }
 
