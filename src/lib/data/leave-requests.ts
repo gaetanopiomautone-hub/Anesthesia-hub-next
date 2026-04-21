@@ -45,7 +45,7 @@ export function leaveStatusLabelItalian(status: LeaveRequestStatus | null | unde
   }
 }
 
-export function leaveTypeLabelItalian(type: LeaveRequestType) {
+export function leaveTypeLabelItalian(type: LeaveRequestType | null | undefined) {
   switch (type) {
     case "vacation":
       return "Ferie";
@@ -57,8 +57,10 @@ export function leaveTypeLabelItalian(type: LeaveRequestType) {
       return "Congresso";
     case "other":
       return "Altro";
-    default:
-      return typeof type === "string" && type.trim() ? type : "Altro";
+    default: {
+      const fallback = String(type ?? "").trim();
+      return fallback ? fallback : "Altro";
+    }
   }
 }
 
