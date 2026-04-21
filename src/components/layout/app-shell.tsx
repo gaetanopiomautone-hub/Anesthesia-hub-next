@@ -31,6 +31,21 @@ export function AppShell({ children, userName, role }: AppShellProps) {
 
   return (
     <div className="min-h-screen bg-background">
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          right: 0,
+          zIndex: 9999,
+          background: "red",
+          color: "white",
+          padding: "6px 10px",
+          fontSize: "12px",
+          fontWeight: "bold",
+        }}
+      >
+        BUILD 1e4a1f2
+      </div>
       <div className="mx-auto grid min-h-screen max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[260px_1fr]">
         <aside className="rounded-3xl border border-border bg-card p-5">
           <div className="mb-8">
