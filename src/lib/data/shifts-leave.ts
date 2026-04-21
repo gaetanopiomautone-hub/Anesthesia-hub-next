@@ -157,11 +157,19 @@ export function buildConflictRows(shifts: ShiftListRow[], leaves: LeaveMonthRow[
     if (impacted.length === 0) continue;
     rows.push({
       leave,
-      impactedShifts: impacted.sort((a, b) => a.shift_date.localeCompare(b.shift_date) || a.shift_kind.localeCompare(b.shift_kind)),
+      impactedShifts: impacted.sort(
+        (a, b) =>
+          String(a.shift_date ?? "").localeCompare(String(b.shift_date ?? "")) ||
+          String(a.shift_kind ?? "").localeCompare(String(b.shift_kind ?? "")),
+      ),
       kind: leave.status === "approved" ? "hard" : "soft",
     });
   }
-  return rows.sort((a, b) => a.leave.start_date.localeCompare(b.leave.start_date) || a.leave.id.localeCompare(b.leave.id));
+  return rows.sort(
+    (a, b) =>
+      String(a.leave.start_date ?? "").localeCompare(String(b.leave.start_date ?? "")) ||
+      String(a.leave.id ?? "").localeCompare(String(b.leave.id ?? "")),
+  );
 }
 
 /** Conta turni con alert soft/hard (stessa logica per specializzando e vista staff). */

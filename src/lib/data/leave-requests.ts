@@ -1,4 +1,4 @@
-import { format } from "date-fns";
+import { format, isValid } from "date-fns";
 import { it } from "date-fns/locale";
 
 import type { CurrentUserProfile } from "@/lib/auth/get-current-user-profile";
@@ -38,6 +38,8 @@ export function leaveStatusLabelItalian(status: LeaveRequestStatus) {
       return "Rifiutata";
     case "cancelled":
       return "Annullata";
+    default:
+      return typeof status === "string" && status.trim() ? status : "Sconosciuto";
   }
 }
 
@@ -53,11 +55,17 @@ export function leaveTypeLabelItalian(type: LeaveRequestType) {
       return "Congresso";
     case "other":
       return "Altro";
+    default:
+      return typeof type === "string" && type.trim() ? type : "Altro";
   }
 }
 
 export function formatDateItalian(value: string) {
-  return format(new Date(value), "dd/MM/yyyy", { locale: it });
+  const parsed = new Date(value);
+  if (!isValid(parsed)) {
+    return value?.trim() ? value : "—";
+  }
+  return format(parsed, "dd/MM/yyyy", { locale: it });
 }
 
 export async function listLeaveRequests(profile: CurrentUserProfile) {
