@@ -18,6 +18,7 @@ const permissionMatrix: Record<AppRole, AppSection[]> = {
 };
 
 export function canAccess(role: AppRole, section: AppSection) {
+  if (role === "admin") return true;
   const allowedSections = permissionMatrix[role];
   if (!Array.isArray(allowedSections)) return false;
   return allowedSections.includes(section);
