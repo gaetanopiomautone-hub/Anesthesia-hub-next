@@ -40,6 +40,13 @@ function feriePathWithMonth(month: string | null) {
   return month ? `${FERIE_PATH}?month=${encodeURIComponent(month)}` : FERIE_PATH;
 }
 
+function feriePathWithOutcome(month: string | null, ok?: "created" | "updated" | "approved" | "rejected") {
+  const basePath = feriePathWithMonth(month);
+  if (!ok) return basePath;
+  const separator = basePath.includes("?") ? "&" : "?";
+  return `${basePath}${separator}ok=${encodeURIComponent(ok)}`;
+}
+
 function redirectToFerieWithError(message: string, month: string | null = null, errorCode?: string): never {
   const basePath = feriePathWithMonth(month);
   const params = new URLSearchParams();
@@ -200,9 +207,7 @@ export async function createLeaveRequestAction(formData: FormData) {
   }
 
   revalidateLeaveViews();
-  const basePath = feriePathWithMonth(month);
-  const separator = basePath.includes("?") ? "&" : "?";
-  redirect(`${basePath}${separator}ok=1`);
+  redirect(feriePathWithOutcome(month, "created"));
 }
 
 export async function updateLeaveRequestAction(formData: FormData) {
@@ -263,7 +268,7 @@ export async function updateLeaveRequestAction(formData: FormData) {
   }
 
   revalidateLeaveViews();
-  redirect(feriePathWithMonth(month));
+  redirect(feriePathWithOutcome(month, "updated"));
 }
 
 export async function approveLeaveRequestAction(formData: FormData) {
@@ -310,7 +315,7 @@ export async function approveLeaveRequestAction(formData: FormData) {
   }
 
   revalidateLeaveViews();
-  redirect(feriePathWithMonth(month));
+  redirect(feriePathWithOutcome(month, "approved"));
 }
 
 export async function rejectLeaveRequestAction(formData: FormData) {
@@ -357,5 +362,5 @@ export async function rejectLeaveRequestAction(formData: FormData) {
   }
 
   revalidateLeaveViews();
-  redirect(feriePathWithMonth(month));
+  redirect(feriePathWithOutcome(month, "rejected"));
 }

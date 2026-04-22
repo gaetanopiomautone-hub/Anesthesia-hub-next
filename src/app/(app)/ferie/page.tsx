@@ -36,7 +36,7 @@ function personLabel(params: { full_name?: string | null; email?: string | null;
 }
 
 type FeriePageProps = {
-  searchParams?: Promise<{ error?: string; errorCode?: string; month?: string; ok?: string }>;
+  searchParams?: Promise<{ error?: string; errorCode?: string; month?: string; ok?: "created" | "updated" | "approved" | "rejected" | string }>;
 };
 
 const MONTH_PARAM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -73,7 +73,7 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
   }
   const actionError = params?.error?.trim() ? params.error.trim() : null;
   const actionErrorCode = params?.errorCode?.trim() ? params.errorCode.trim() : null;
-  const actionOk = params?.ok === "1";
+  const actionOk = params?.ok?.trim() || null;
   const monthContext = resolveMonthContext(monthContextBase.yearMonth);
   const rows = await listLeaveRequests(profile);
 
@@ -102,7 +102,13 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
         <>
           <ClearOkParam />
           <div role="status" className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-            Richiesta ferie inviata per {monthContext?.monthLabel ?? "il periodo selezionato"}.
+            {actionOk === "updated"
+              ? "Richiesta ferie aggiornata."
+              : actionOk === "approved"
+                ? "Richiesta ferie approvata."
+                : actionOk === "rejected"
+                  ? "Richiesta ferie rifiutata."
+                  : `Richiesta ferie inviata per ${monthContext?.monthLabel ?? "il periodo selezionato"}.`}
           </div>
         </>
       ) : null}
