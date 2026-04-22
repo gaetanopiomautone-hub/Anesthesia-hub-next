@@ -233,8 +233,7 @@ async function listShiftsInMonth(params: {
       shift_date,
       shift_kind,
       assignee_profile_id,
-      clinical_locations ( name, area_type ),
-      assignee:profiles!shifts_assignee_profile_id_fkey ( full_name, email )
+      clinical_locations ( name, area_type )
     `,
     )
     .gte("shift_date", params.monthStart)
@@ -252,13 +251,12 @@ async function listShiftsInMonth(params: {
     throw new Error(`shifts month query failed: ${error.message}`);
   }
 
-  return (data ?? []).map((raw) => {
+  const rows = (data ?? []).map((raw) => {
     const row = raw as Omit<ShiftListRow, "clinical_locations" | "assignee"> & {
       clinical_locations:
         | { name: string; area_type: "sala_operatoria" | "rianimazione" }
         | { name: string; area_type: "sala_operatoria" | "rianimazione" }[]
         | null;
-      assignee: { full_name: string | null; email: string | null } | { full_name: string | null; email: string | null }[] | null;
     };
 
     return {
@@ -267,9 +265,33 @@ async function listShiftsInMonth(params: {
       shift_kind: (String(row.shift_kind ?? "giornaliero").trim() || "giornaliero") as ShiftKind,
       assignee_profile_id: row.assignee_profile_id ?? null,
       clinical_locations: firstOrNull(row.clinical_locations),
-      assignee: firstOrNull(row.assignee),
+      assignee: null,
     } satisfies ShiftListRow;
   });
+
+  const assigneeIds = Array.from(
+    new Set(rows.map((r) => r.assignee_profile_id).filter((id): id is string => Boolean(id))),
+  );
+
+  if (assigneeIds.length === 0) return rows;
+
+  const { data: profiles, error: profilesError } = await supabase
+    .from("profiles")
+    .select("id, full_name, email")
+    .in("id", assigneeIds);
+
+  if (profilesError) {
+    throw new Error(`profiles for shifts query failed: ${profilesError.message}`);
+  }
+
+  const profileById = new Map(
+    (profiles ?? []).map((p) => [String(p.id), { full_name: p.full_name ?? null, email: p.email ?? null }]),
+  );
+
+  return rows.map((r) => ({
+    ...r,
+    assignee: r.assignee_profile_id ? (profileById.get(r.assignee_profile_id) ?? null) : null,
+  }));
 }
 
 async function listLeavesOverlappingMonth(params: { monthStart: string; monthEnd: string; assigneeId: string | null; viewAll: boolean }) {
