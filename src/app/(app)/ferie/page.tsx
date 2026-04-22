@@ -12,7 +12,7 @@ import {
   createLeaveRequestAction,
 } from "./actions";
 import { ClearOkParam } from "./clear-ok-param";
-import { LeaveRequestsList } from "./leave-requests-list";
+import { FerieMonthView } from "./ferie-month-view";
 import { NewLeaveRequestForm } from "./new-leave-request-form";
 
 type FeriePageProps = {
@@ -118,14 +118,13 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
           )}
         </Card>
 
-        <Card title="Stato richieste">
-          <LeaveRequestsList
-            rows={rows}
-            profileId={profile.id}
-            profileRole={profile.role}
-            month={monthContextBase.yearMonth}
-          />
-        </Card>
+        <FerieMonthView
+          yearMonth={monthContextBase.yearMonth}
+          rows={rows}
+          profileId={profile.id}
+          profileRole={profile.role}
+          month={monthContextBase.yearMonth}
+        />
       </section>
     </div>
   );
