@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { requireSection } from "@/lib/auth/get-current-user-profile";
+import { normalizeDayInMonth } from "@/lib/dates/day-in-month";
 import { getMonthContext } from "@/lib/dates/getMonthContext";
 import { listLeaveRequests } from "@/lib/data/leave-requests";
 
@@ -16,7 +17,13 @@ import { FerieMonthView } from "./ferie-month-view";
 import { NewLeaveRequestForm } from "./new-leave-request-form";
 
 type FeriePageProps = {
-  searchParams?: Promise<{ error?: string; errorCode?: string; month?: string; ok?: "created" | "updated" | "approved" | "rejected" | "cancelled" | string }>;
+  searchParams?: Promise<{
+    error?: string;
+    errorCode?: string;
+    month?: string;
+    day?: string;
+    ok?: "created" | "updated" | "approved" | "rejected" | "cancelled" | string;
+  }>;
 };
 
 const MONTH_PARAM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -50,6 +57,15 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
   const monthContextBase = getMonthContext(params?.month);
   if (params?.month && !monthContextBase.isValid) {
     redirect(`/ferie?month=${monthContextBase.yearMonth}`);
+  }
+  const normalizedDay = normalizeDayInMonth(params?.day, monthContextBase.yearMonth);
+  if (params?.day && !normalizedDay) {
+    const redirectParams = new URLSearchParams();
+    redirectParams.set("month", monthContextBase.yearMonth);
+    if (params?.ok?.trim()) redirectParams.set("ok", params.ok.trim());
+    if (params?.error?.trim()) redirectParams.set("error", params.error.trim());
+    if (params?.errorCode?.trim()) redirectParams.set("errorCode", params.errorCode.trim());
+    redirect(`/ferie?${redirectParams.toString()}`);
   }
   const actionError = params?.error?.trim() ? params.error.trim() : null;
   const actionErrorCode = params?.errorCode?.trim() ? params.errorCode.trim() : null;
@@ -120,6 +136,7 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
 
         <FerieMonthView
           yearMonth={monthContextBase.yearMonth}
+          initialSelectedDate={normalizedDay}
           rows={rows}
           profileId={profile.id}
           profileRole={profile.role}

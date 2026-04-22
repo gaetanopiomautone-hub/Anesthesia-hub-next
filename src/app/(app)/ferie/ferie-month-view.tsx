@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { Card } from "@/components/ui/card";
 import { formatDateItalian, type LeaveRequestRow } from "@/lib/data/leave-requests";
@@ -11,19 +12,38 @@ import { MonthCalendar } from "./month-calendar";
 
 type FerieMonthViewProps = {
   yearMonth: string;
+  initialSelectedDate: string | null;
   rows: LeaveRequestRow[];
   profileId: string;
   profileRole: "specializzando" | "tutor" | "admin";
   month: string;
 };
 
-export function FerieMonthView({ yearMonth, rows, profileId, profileRole, month }: FerieMonthViewProps) {
-  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+export function FerieMonthView({ yearMonth, initialSelectedDate, rows, profileId, profileRole, month }: FerieMonthViewProps) {
+  const [selectedDate, setSelectedDate] = useState<string | null>(initialSelectedDate);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
 
   const filteredRows = useMemo(() => {
     if (!selectedDate) return rows;
     return rows.filter((r) => hasDateOverlap(selectedDate, selectedDate, r.start_date, r.end_date));
   }, [rows, selectedDate]);
+
+  const handleSelectDate = (ymd: string) => {
+    const nextSelectedDate = selectedDate === ymd ? null : ymd;
+    setSelectedDate(nextSelectedDate);
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.set("month", yearMonth);
+    if (nextSelectedDate) {
+      nextParams.set("day", nextSelectedDate);
+    } else {
+      nextParams.delete("day");
+    }
+    const nextQuery = nextParams.toString();
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname);
+  };
 
   return (
     <>
@@ -32,7 +52,7 @@ export function FerieMonthView({ yearMonth, rows, profileId, profileRole, month 
           yearMonth={yearMonth}
           leaves={rows}
           selectedDate={selectedDate}
-          onSelectDate={(ymd) => setSelectedDate((prev) => (prev === ymd ? null : ymd))}
+          onSelectDate={handleSelectDate}
         />
       </Card>
 
