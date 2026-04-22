@@ -56,7 +56,7 @@ function approvalMeta(row: LeaveRequestRow) {
 }
 
 type FeriePageProps = {
-  searchParams?: Promise<{ error?: string; month?: string; ok?: string }>;
+  searchParams?: Promise<{ error?: string; errorCode?: string; month?: string; ok?: string }>;
 };
 
 const MONTH_PARAM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -92,6 +92,7 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
     redirect(`/ferie?month=${monthContextBase.yearMonth}`);
   }
   const actionError = params?.error?.trim() ? params.error.trim() : null;
+  const actionErrorCode = params?.errorCode?.trim() ? params.errorCode.trim() : null;
   const actionOk = params?.ok === "1";
   const monthContext = resolveMonthContext(monthContextBase.yearMonth);
   const rows = await listLeaveRequests(profile);
@@ -112,14 +113,16 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
           role="alert"
           className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
         >
-          {actionError}
+          {actionErrorCode === "overlap"
+            ? "Hai già una richiesta ferie in questo periodo (anche parziale). Modifica quella esistente oppure scegli altre date."
+            : actionError}
         </div>
       ) : null}
       {actionOk ? (
         <>
           <ClearOkParam />
           <div role="status" className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-            Richiesta ferie inviata correttamente.
+            Richiesta ferie inviata per {monthContext?.monthLabel ?? "il periodo selezionato"}.
           </div>
         </>
       ) : null}
@@ -234,6 +237,7 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
                     return (
                       <form action={updateLeaveRequestAction} className="grid gap-2">
                         <input type="hidden" name="id" value={row.id} />
+                        <input type="hidden" name="month" value={monthContextBase.yearMonth} />
                         <select
                           name="requestType"
                           defaultValue={row.request_type}
@@ -279,6 +283,7 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
                       <div className="grid gap-3">
                         <form action={approveLeaveRequestAction} className="grid gap-2">
                           <input type="hidden" name="id" value={row.id} />
+                          <input type="hidden" name="month" value={monthContextBase.yearMonth} />
                           <input
                             name="adminNote"
                             className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
@@ -290,6 +295,7 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
                         </form>
                         <form action={rejectLeaveRequestAction} className="grid gap-2">
                           <input type="hidden" name="id" value={row.id} />
+                          <input type="hidden" name="month" value={monthContextBase.yearMonth} />
                           <input
                             name="adminNote"
                             className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
