@@ -3,26 +3,16 @@ import { it } from "date-fns/locale";
 import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/layout/page-header";
-import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
-import { DataTable } from "@/components/ui/table";
 import { requireSection } from "@/lib/auth/get-current-user-profile";
 import { getMonthContext } from "@/lib/dates/getMonthContext";
-import {
-  formatDateItalian,
-  leaveStatusLabelItalian,
-  leaveTypeLabelItalian,
-  listLeaveRequests,
-  type LeaveRequestRow,
-} from "@/lib/data/leave-requests";
+import { listLeaveRequests, type LeaveRequestRow } from "@/lib/data/leave-requests";
 
 import {
-  approveLeaveRequestAction,
   createLeaveRequestAction,
-  rejectLeaveRequestAction,
-  updateLeaveRequestAction,
 } from "./actions";
 import { ClearOkParam } from "./clear-ok-param";
+import { LeaveRequestsList } from "./leave-requests-list";
 import { NewLeaveRequestForm } from "./new-leave-request-form";
 
 function requesterLabel(row: LeaveRequestRow) {
@@ -43,35 +33,6 @@ function personLabel(params: { full_name?: string | null; email?: string | null;
   if (name) return name;
   if (email) return email;
   return params.fallback;
-}
-
-function approvalMeta(row: LeaveRequestRow) {
-  if (!row.reviewed_at) return "—";
-  const who = personLabel({
-    full_name: row.approver?.full_name,
-    email: row.approver?.email,
-    fallback: "Revisore",
-  });
-
-  return `${who} · ${formatDateItalian(row.reviewed_at)}`;
-}
-
-function formatRange(startDate: string, endDate: string) {
-  return `${formatDateItalian(startDate)} → ${formatDateItalian(endDate)}`;
-}
-
-function statusBadgeVariant(status: LeaveRequestRow["status"]): "default" | "success" | "warning" | "danger" {
-  switch (status) {
-    case "approved":
-      return "success";
-    case "pending":
-      return "warning";
-    case "rejected":
-      return "danger";
-    case "cancelled":
-    default:
-      return "default";
-  }
 }
 
 type FeriePageProps = {
@@ -171,129 +132,12 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
         </Card>
 
         <Card title="Stato richieste">
-          <DataTable
+          <LeaveRequestsList
             rows={rows}
-            columns={[
-              {
-                header: "Richiedente",
-                render: (row) => (
-                  <div className="space-y-1">
-                    <p className="font-medium">{requesterLabel(row)}</p>
-                    <p className="text-xs text-muted-foreground">Creata il {formatDateItalian(row.created_at)}</p>
-                  </div>
-                ),
-              },
-              {
-                header: "Periodo",
-                render: (row) => (
-                  <div className="space-y-1">
-                    <p className="font-medium">{formatRange(row.start_date, row.end_date)}</p>
-                    <p className="text-xs text-muted-foreground">{leaveTypeLabelItalian(row.request_type)}</p>
-                  </div>
-                ),
-              },
-              {
-                header: "Stato",
-                render: (row) => (
-                  <div className="space-y-2">
-                    <Badge variant={statusBadgeVariant(row.status)}>
-                      {leaveStatusLabelItalian(row.status)}
-                    </Badge>
-                    <p className="text-xs text-muted-foreground">Revisione: {approvalMeta(row)}</p>
-                  </div>
-                ),
-              },
-              {
-                header: "Note",
-                render: (row) => <p className="whitespace-pre-wrap text-sm text-muted-foreground">{row.reason?.trim() ? row.reason : "—"}</p>,
-              },
-              {
-                header: "Azioni",
-                className: "min-w-[260px]",
-                render: (row) => {
-                  const isOwn = row.user_id === profile.id;
-                  const isPending = row.status === "pending";
-
-                  if (canCreate && isOwn && isPending) {
-                    return (
-                      <form action={updateLeaveRequestAction} className="grid gap-2">
-                        <input type="hidden" name="id" value={row.id} />
-                        <input type="hidden" name="month" value={monthContextBase.yearMonth} />
-                        <select
-                          name="requestType"
-                          defaultValue={row.request_type}
-                          className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
-                        >
-                          <option value="vacation">Ferie</option>
-                          <option value="permission">Permesso</option>
-                          <option value="sick_leave">Malattia</option>
-                          <option value="conference">Congresso</option>
-                          <option value="other">Altro</option>
-                        </select>
-                        <div className="grid grid-cols-2 gap-2">
-                          <input
-                            name="startDate"
-                            type="date"
-                            defaultValue={row.start_date}
-                            className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
-                          />
-                          <input
-                            name="endDate"
-                            type="date"
-                            defaultValue={row.end_date}
-                            className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
-                          />
-                        </div>
-                        <textarea
-                          name="reason"
-                          rows={3}
-                          defaultValue={row.reason ?? ""}
-                          className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
-                          placeholder="Aggiorna motivazione o dettagli"
-                        />
-                        <button type="submit" className="rounded-lg border border-border bg-background px-3 py-1 text-xs font-medium">
-                          Salva modifiche
-                        </button>
-                        <p className="text-[11px] text-muted-foreground">Modificabile solo finche la richiesta resta in attesa.</p>
-                      </form>
-                    );
-                  }
-
-                  if (canDecide && isPending && !isOwn) {
-                    return (
-                      <div className="grid gap-3">
-                        <form action={approveLeaveRequestAction} className="grid gap-2">
-                          <input type="hidden" name="id" value={row.id} />
-                          <input type="hidden" name="month" value={monthContextBase.yearMonth} />
-                          <input
-                            name="adminNote"
-                            className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
-                            placeholder="Nota opzionale (appesa alla richiesta)"
-                          />
-                          <button type="submit" className="rounded-lg bg-primary px-3 py-1 text-xs font-medium text-primary-foreground">
-                            Approva
-                          </button>
-                        </form>
-                        <form action={rejectLeaveRequestAction} className="grid gap-2">
-                          <input type="hidden" name="id" value={row.id} />
-                          <input type="hidden" name="month" value={monthContextBase.yearMonth} />
-                          <input
-                            name="adminNote"
-                            className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
-                            placeholder="Motivo rifiuto (opzionale ma consigliato)"
-                          />
-                          <button type="submit" className="rounded-lg border border-destructive/40 px-3 py-1 text-xs font-medium text-destructive">
-                            Rifiuta
-                          </button>
-                        </form>
-                      </div>
-                    );
-                  }
-
-                  return <span className="text-xs text-muted-foreground">—</span>;
-                },
-              },
-            ]}
+            profileId={profile.id}
+            canCreate={canCreate}
+            canDecide={canDecide}
+            month={monthContextBase.yearMonth}
           />
         </Card>
       </section>
