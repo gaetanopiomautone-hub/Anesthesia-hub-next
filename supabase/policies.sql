@@ -24,6 +24,48 @@ as $$
   select public.get_my_role() in ('tutor', 'admin')
 $$;
 
+create or replace function public.is_admin()
+returns boolean
+language sql
+stable
+as $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and p.role = 'admin'
+      and coalesce(p.is_active, true) = true
+  )
+$$;
+
+create or replace function public.is_tutor()
+returns boolean
+language sql
+stable
+as $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and p.role = 'tutor'
+      and coalesce(p.is_active, true) = true
+  )
+$$;
+
+create or replace function public.is_specializzando()
+returns boolean
+language sql
+stable
+as $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and p.role = 'specializzando'
+      and coalesce(p.is_active, true) = true
+  )
+$$;
+
 -- ---------------------------------------------------------------------------
 -- profiles
 -- Rules:
@@ -182,43 +224,81 @@ with check (trainee_profile_id = auth.uid());
 -- ---------------------------------------------------------------------------
 -- shifts
 -- Rules:
--- - trainee sees only own shifts (assignee)
--- - scheduler/admin see all and can manage (insert/update/delete)
+-- - admin and tutor: read all
+-- - specializzando: read own scope (assignee or own proposal)
+-- - admin: full mutation
+-- - specializzando: update only own non-approved proposals
 -- ---------------------------------------------------------------------------
 
 alter table public.shifts enable row level security;
 
 drop policy if exists "shifts_select_own_or_scheduler_admin" on public.shifts;
-create policy "shifts_select_own_or_scheduler_admin"
+drop policy if exists "shifts_select_admin_tutor_all" on public.shifts;
+create policy "shifts_select_admin_tutor_all"
 on public.shifts
 for select
 to authenticated
 using (
-  assignee_profile_id = auth.uid()
-  or public.is_scheduler_or_admin()
+  public.is_admin()
+  or public.is_tutor()
+);
+
+drop policy if exists "shifts_select_specializzando_own_scope" on public.shifts;
+create policy "shifts_select_specializzando_own_scope"
+on public.shifts
+for select
+to authenticated
+using (
+  public.is_specializzando()
+  and (
+    assignee_profile_id = auth.uid()
+    or proposed_by = auth.uid()
+  )
 );
 
 drop policy if exists "shifts_insert_scheduler_admin" on public.shifts;
-create policy "shifts_insert_scheduler_admin"
+drop policy if exists "shifts_insert_admin" on public.shifts;
+create policy "shifts_insert_admin"
 on public.shifts
 for insert
 to authenticated
-with check (public.is_scheduler_or_admin());
+with check (public.is_admin());
 
 drop policy if exists "shifts_update_scheduler_admin" on public.shifts;
-create policy "shifts_update_scheduler_admin"
+drop policy if exists "shifts_update_admin" on public.shifts;
+create policy "shifts_update_admin"
 on public.shifts
 for update
 to authenticated
-using (public.is_scheduler_or_admin())
-with check (public.is_scheduler_or_admin());
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "shifts_update_specializzando_bootstrap_or_own" on public.shifts;
+create policy "shifts_update_specializzando_bootstrap_or_own"
+on public.shifts
+for update
+to authenticated
+using (
+  public.is_specializzando()
+  and (
+    proposed_by = auth.uid()
+    or proposed_by is null
+  )
+  and status <> 'approved'
+)
+with check (
+  public.is_specializzando()
+  and proposed_by = auth.uid()
+  and status <> 'approved'
+);
 
 drop policy if exists "shifts_delete_scheduler_admin" on public.shifts;
-create policy "shifts_delete_scheduler_admin"
+drop policy if exists "shifts_delete_admin" on public.shifts;
+create policy "shifts_delete_admin"
 on public.shifts
 for delete
 to authenticated
-using (public.is_scheduler_or_admin());
+using (public.is_admin());
 
 -- ---------------------------------------------------------------------------
 -- learning_resources (archivio didattico)

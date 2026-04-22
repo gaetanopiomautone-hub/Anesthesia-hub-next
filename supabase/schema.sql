@@ -141,6 +141,58 @@ create table if not exists public.shifts (
   unique (shift_date, shift_kind, location_id)
 );
 
+-- Turni v2 workflow fields (idempotent and rollout-safe)
+alter table public.shifts
+  add column if not exists status text;
+
+alter table public.shifts
+  add column if not exists proposed_by uuid references public.profiles (id) on delete set null;
+
+alter table public.shifts
+  add column if not exists submitted_at timestamptz;
+
+alter table public.shifts
+  add column if not exists approved_by uuid references public.profiles (id) on delete set null;
+
+alter table public.shifts
+  add column if not exists approved_at timestamptz;
+
+alter table public.shifts
+  add column if not exists rejected_by uuid references public.profiles (id) on delete set null;
+
+alter table public.shifts
+  add column if not exists rejected_at timestamptz;
+
+alter table public.shifts
+  add column if not exists rejection_reason text;
+
+-- Backfill legacy rows: assigned -> approved, unassigned -> draft
+update public.shifts
+set status = case
+  when assignee_profile_id is not null then 'approved'
+  else 'draft'
+end
+where status is null;
+
+alter table public.shifts
+  alter column status set default 'draft';
+
+alter table public.shifts
+  alter column status set not null;
+
+alter table public.shifts
+  drop constraint if exists shifts_status_check;
+
+alter table public.shifts
+  add constraint shifts_status_check check (status in ('draft', 'submitted', 'approved', 'rejected'));
+
+-- Optional audit backfill for legacy assigned shifts
+update public.shifts
+set approved_at = coalesce(approved_at, now())
+where status = 'approved'
+  and approved_at is null
+  and assignee_profile_id is not null;
+
 create table if not exists public.leave_requests (
   id uuid primary key default gen_random_uuid(),
   requester_profile_id uuid not null references public.profiles (id) on delete cascade,
