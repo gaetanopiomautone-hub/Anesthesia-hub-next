@@ -305,8 +305,7 @@ async function listLeavesOverlappingMonth(params: { monthStart: string; monthEnd
       request_type,
       start_date,
       end_date,
-      status,
-      requester:profiles!leave_requests_user_id_fkey ( full_name, email )
+      status
     `,
     )
     .lte("start_date", params.monthEnd)
@@ -323,10 +322,8 @@ async function listLeavesOverlappingMonth(params: { monthStart: string; monthEnd
     throw new Error(`leave_requests month query failed: ${error.message}`);
   }
 
-  return (data ?? []).map((raw) => {
-    const row = raw as Omit<LeaveMonthRow, "requester"> & {
-      requester: { full_name: string | null; email: string | null } | { full_name: string | null; email: string | null }[] | null;
-    };
+  const rows = (data ?? []).map((raw) => {
+    const row = raw as Omit<LeaveMonthRow, "requester">;
 
     return {
       ...row,
@@ -336,9 +333,30 @@ async function listLeavesOverlappingMonth(params: { monthStart: string; monthEnd
       end_date: String(row.end_date ?? "").trim(),
       request_type: row.request_type as LeaveRequestType,
       status: row.status as LeaveRequestStatus,
-      requester: firstOrNull(row.requester),
+      requester: null,
     } satisfies LeaveMonthRow;
   });
+
+  const userIds = Array.from(new Set(rows.map((r) => r.user_id).filter(Boolean)));
+  if (userIds.length === 0) return rows;
+
+  const { data: requesters, error: requestersError } = await supabase
+    .from("profiles")
+    .select("id, full_name, email")
+    .in("id", userIds);
+
+  if (requestersError) {
+    throw new Error(`profiles for leaves query failed: ${requestersError.message}`);
+  }
+
+  const requesterById = new Map(
+    (requesters ?? []).map((p) => [String(p.id), { full_name: p.full_name ?? null, email: p.email ?? null }]),
+  );
+
+  return rows.map((r) => ({
+    ...r,
+    requester: requesterById.get(r.user_id) ?? null,
+  }));
 }
 
 export async function listSpecializzandiForFilter(profile: CurrentUserProfile) {
