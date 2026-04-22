@@ -1,18 +1,34 @@
+import Link from "next/link";
+import { redirect } from "next/navigation";
+
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { requireSection } from "@/lib/auth/get-current-user-profile";
+import { getMonthContext } from "@/lib/dates/getMonthContext";
 import { formatDateItalian, leaveTypeLabelItalian } from "@/lib/data/shifts-leave";
-import { loadTurniFeriePageData, resolveTurniFerieMonth, shiftKindLabelItalian } from "@/lib/data/shifts-leave";
+import { adjacentMonthYearMonth, loadTurniFeriePageData, resolveTurniFerieMonth, shiftKindLabelItalian } from "@/lib/data/shifts-leave";
 
-export default async function TurniFeriePage() {
+type TurniFeriePageProps = {
+  searchParams?: Promise<{ month?: string; m?: string }>;
+};
+
+export default async function TurniFeriePage({ searchParams }: TurniFeriePageProps) {
   const profile = await requireSection("turni-ferie");
-  const { monthStart, monthEnd, monthLabel } = resolveTurniFerieMonth(undefined);
+  const sp = (await searchParams) ?? {};
+  const monthParam = sp.month ?? sp.m;
+  const monthContext = getMonthContext(monthParam);
+  if (monthParam && !monthContext.isValid) {
+    redirect(`/turni-ferie?month=${monthContext.yearMonth}`);
+  }
+  const { yearMonth, monthStart, monthEnd, monthLabel } = resolveTurniFerieMonth(monthContext.yearMonth);
 
   const data = await loadTurniFeriePageData(profile, {
     monthStart,
     monthEnd,
     assigneeId: null,
   });
+  const prevMonth = adjacentMonthYearMonth(yearMonth, -1);
+  const nextMonth = adjacentMonthYearMonth(yearMonth, 1);
 
   return (
     <div className="space-y-6">
@@ -20,7 +36,24 @@ export default async function TurniFeriePage() {
         eyebrow="Pianificazione"
         title="Turni & Ferie"
         description={`Vista operativa del mese di ${monthLabel}: turni pianificati e richieste ferie inserite.`}
+        actions={
+          <Link href={`/ferie?month=${yearMonth}`} className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+            Nuova richiesta ferie
+          </Link>
+        }
       />
+
+      <Card title="Periodo">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Link href={`/turni-ferie?month=${prevMonth}`} className="rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-secondary">
+            ← Mese precedente
+          </Link>
+          <p className="text-sm font-medium capitalize text-foreground">{monthLabel}</p>
+          <Link href={`/turni-ferie?month=${nextMonth}`} className="rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-secondary">
+            Mese successivo →
+          </Link>
+        </div>
+      </Card>
 
       <div className="grid gap-4 md:grid-cols-3">
         <Card title="Turni nel mese">
@@ -52,7 +85,12 @@ export default async function TurniFeriePage() {
 
       <Card title="Richieste ferie" description="Richieste che si sovrappongono almeno in parte al mese visualizzato.">
         {data.leaves.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nessuna richiesta ferie nel periodo selezionato.</p>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">Nessuna richiesta ferie nel periodo selezionato.</p>
+            <Link href={`/ferie?month=${yearMonth}`} className="inline-flex rounded-lg border border-border px-3 py-1.5 text-sm hover:bg-secondary">
+              Nuova richiesta ferie
+            </Link>
+          </div>
         ) : (
           <div className="space-y-2">
             {data.leaves.map((leave) => (

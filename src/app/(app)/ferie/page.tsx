@@ -1,8 +1,13 @@
+import { endOfMonth, format, isValid, parse, startOfMonth } from "date-fns";
+import { it } from "date-fns/locale";
+import { redirect } from "next/navigation";
+
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/table";
 import { requireSection } from "@/lib/auth/get-current-user-profile";
+import { getMonthContext } from "@/lib/dates/getMonthContext";
 import {
   formatDateItalian,
   leaveStatusLabelItalian,
@@ -50,13 +55,43 @@ function approvalMeta(row: LeaveRequestRow) {
 }
 
 type FeriePageProps = {
-  searchParams?: Promise<{ error?: string }>;
+  searchParams?: Promise<{ error?: string; month?: string }>;
 };
+
+const MONTH_PARAM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+function resolveMonthContext(monthParam?: string) {
+  if (!monthParam || !MONTH_PARAM_RE.test(monthParam)) return null;
+  const parsed = parse(monthParam, "yyyy-MM", new Date());
+  if (!isValid(parsed)) return null;
+
+  const monthStart = startOfMonth(parsed);
+  const monthEnd = endOfMonth(parsed);
+  const today = new Date();
+  const todayYmd = format(today, "yyyy-MM-dd");
+  const startYmd = format(monthStart, "yyyy-MM-dd");
+  const endYmd = format(monthEnd, "yyyy-MM-dd");
+  const monthLabel = format(parsed, "MMMM yyyy", { locale: it });
+  const defaultStart = todayYmd >= startYmd && todayYmd <= endYmd ? todayYmd : startYmd;
+
+  return {
+    monthLabel,
+    minDate: startYmd,
+    maxDate: endYmd,
+    defaultStartDate: defaultStart,
+    defaultEndDate: endYmd,
+  };
+}
 
 export default async function FeriePage({ searchParams }: FeriePageProps) {
   const profile = await requireSection("ferie");
   const params = await searchParams;
+  const monthContextBase = getMonthContext(params?.month);
+  if (params?.month && !monthContextBase.isValid) {
+    redirect(`/ferie?month=${monthContextBase.yearMonth}`);
+  }
   const actionError = params?.error?.trim() ? params.error.trim() : null;
+  const monthContext = resolveMonthContext(monthContextBase.yearMonth);
   const rows = await listLeaveRequests(profile);
 
   const canCreate = profile.role === "specializzando";
@@ -83,6 +118,12 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
         <Card title="Nuova richiesta">
           {canCreate ? (
             <form action={createLeaveRequestAction} className="grid gap-4">
+              <input type="hidden" name="month" value={monthContextBase.yearMonth} />
+              {monthContext ? (
+                <p className="rounded-lg border border-border bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">
+                  Stai inserendo una richiesta per {monthContext.monthLabel}.
+                </p>
+              ) : null}
               <select name="requestType" className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
                 <option value="vacation">Ferie</option>
                 <option value="permission">Permesso</option>
@@ -90,8 +131,22 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
                 <option value="conference">Congresso</option>
                 <option value="other">Altro</option>
               </select>
-              <input name="startDate" type="date" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
-              <input name="endDate" type="date" className="rounded-lg border border-border bg-background px-3 py-2 text-sm" />
+              <input
+                name="startDate"
+                type="date"
+                defaultValue={monthContext?.defaultStartDate}
+                min={monthContext?.minDate}
+                max={monthContext?.maxDate}
+                className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              />
+              <input
+                name="endDate"
+                type="date"
+                defaultValue={monthContext?.defaultEndDate}
+                min={monthContext?.minDate}
+                max={monthContext?.maxDate}
+                className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
+              />
               <textarea
                 name="reason"
                 rows={4}

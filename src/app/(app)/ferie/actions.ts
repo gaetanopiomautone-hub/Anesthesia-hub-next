@@ -27,8 +27,23 @@ const leaveDecisionSchema = z.object({
 
 const FERIE_PATH = "/ferie";
 
-function redirectToFerieWithError(message: string): never {
-  redirect(`${FERIE_PATH}?error=${encodeURIComponent(message)}`);
+const MONTH_PARAM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
+
+function readMonthParamFromForm(formData: FormData) {
+  const raw = formData.get("month");
+  if (typeof raw !== "string") return null;
+  const value = raw.trim();
+  return MONTH_PARAM_RE.test(value) ? value : null;
+}
+
+function feriePathWithMonth(month: string | null) {
+  return month ? `${FERIE_PATH}?month=${encodeURIComponent(month)}` : FERIE_PATH;
+}
+
+function redirectToFerieWithError(message: string, month: string | null = null): never {
+  const basePath = feriePathWithMonth(month);
+  const separator = basePath.includes("?") ? "&" : "?";
+  redirect(`${basePath}${separator}error=${encodeURIComponent(message)}`);
 }
 
 function friendlyPostgresMessage(error: PostgrestError): string {
@@ -118,6 +133,7 @@ function normalizeLeaveRequestType(requestType: z.infer<typeof leaveRequestSchem
 }
 
 export async function createLeaveRequestAction(formData: FormData) {
+  const month = readMonthParamFromForm(formData);
   const profile = await requireFerieTrainee();
   const parsed = parseLeaveRequestForm(formData);
   requireDateOrderOrRedirect(parsed.startDate, parsed.endDate);
@@ -136,11 +152,11 @@ export async function createLeaveRequestAction(formData: FormData) {
   });
 
   if (error) {
-    redirectToFerieWithError(friendlyPostgresMessage(error));
+    redirectToFerieWithError(friendlyPostgresMessage(error), month);
   }
 
   revalidateLeaveViews();
-  redirect(FERIE_PATH);
+  redirect(feriePathWithMonth(month));
 }
 
 export async function updateLeaveRequestAction(formData: FormData) {
