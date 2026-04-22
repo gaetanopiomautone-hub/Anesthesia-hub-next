@@ -16,12 +16,17 @@ import {
   type LeaveRequestRow,
 } from "@/lib/data/leave-requests";
 import { hasDateOverlap } from "@/lib/dates/hasDateOverlap";
+import type { AppRole } from "@/lib/auth/roles";
+import {
+  canCancelLeaveRequest,
+  canEditLeaveRequest,
+  canReviewLeaveRequest,
+} from "@/lib/domain/leave-request-permissions";
 
 type LeaveRequestsListProps = {
   rows: LeaveRequestRow[];
   profileId: string;
-  canCreate: boolean;
-  canDecide: boolean;
+  profileRole: AppRole;
   month: string;
 };
 
@@ -57,7 +62,7 @@ function useDebouncedValue<T>(value: T, delayMs = 150) {
   return debounced;
 }
 
-export function LeaveRequestsList({ rows, profileId, canCreate, canDecide, month }: LeaveRequestsListProps) {
+export function LeaveRequestsList({ rows, profileId, profileRole, month }: LeaveRequestsListProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftStart, setDraftStart] = useState("");
   const [draftEnd, setDraftEnd] = useState("");
@@ -91,7 +96,9 @@ export function LeaveRequestsList({ rows, profileId, canCreate, canDecide, month
       {rows.map((row) => {
         const isOwn = row.user_id === profileId;
         const isPending = row.status === "pending";
-        const canEdit = canCreate && isOwn && isPending;
+        const canEdit = canEditLeaveRequest({ request: row, currentUserId: profileId, currentUserRole: profileRole });
+        const canCancel = canCancelLeaveRequest({ request: row, currentUserId: profileId, currentUserRole: profileRole });
+        const canReview = canReviewLeaveRequest({ request: row, currentUserId: profileId, currentUserRole: profileRole });
         const isEditing = editingId === row.id;
 
         return (
@@ -126,7 +133,7 @@ export function LeaveRequestsList({ rows, profileId, canCreate, canDecide, month
                     >
                       {isEditing ? "Chiudi modifica" : "Modifica"}
                     </button>
-                    {!isEditing ? (
+                    {!isEditing && canCancel ? (
                       <form
                         action={cancelLeaveRequestAction}
                         onSubmit={(e) => {
@@ -221,7 +228,7 @@ export function LeaveRequestsList({ rows, profileId, canCreate, canDecide, month
               </div>
             ) : null}
 
-            {!isEditing && canDecide && isPending && !isOwn ? (
+            {!isEditing && canReview ? (
               <div className="mt-4 grid gap-3 border-t border-border pt-3">
                 <form action={approveLeaveRequestAction} className="grid gap-2">
                   <input type="hidden" name="id" value={row.id} />

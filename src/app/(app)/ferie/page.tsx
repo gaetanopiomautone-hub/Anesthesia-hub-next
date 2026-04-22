@@ -58,7 +58,6 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
   const rows = await listLeaveRequests(profile);
 
   const canCreate = profile.role === "specializzando";
-  const canDecide = profile.role === "admin";
 
   return (
     <div className="space-y-6">
@@ -123,8 +122,7 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
           <LeaveRequestsList
             rows={rows}
             profileId={profile.id}
-            canCreate={canCreate}
-            canDecide={canDecide}
+            profileRole={profile.role}
             month={monthContextBase.yearMonth}
           />
         </Card>
