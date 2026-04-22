@@ -156,7 +156,9 @@ export async function createLeaveRequestAction(formData: FormData) {
   }
 
   revalidateLeaveViews();
-  redirect(feriePathWithMonth(month));
+  const basePath = feriePathWithMonth(month);
+  const separator = basePath.includes("?") ? "&" : "?";
+  redirect(`${basePath}${separator}ok=1`);
 }
 
 export async function updateLeaveRequestAction(formData: FormData) {

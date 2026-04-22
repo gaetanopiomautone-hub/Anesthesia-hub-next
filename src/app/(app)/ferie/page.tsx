@@ -22,6 +22,7 @@ import {
   rejectLeaveRequestAction,
   updateLeaveRequestAction,
 } from "./actions";
+import { ClearOkParam } from "./clear-ok-param";
 
 function requesterLabel(row: LeaveRequestRow) {
   const name = row.requester?.full_name?.trim();
@@ -55,7 +56,7 @@ function approvalMeta(row: LeaveRequestRow) {
 }
 
 type FeriePageProps = {
-  searchParams?: Promise<{ error?: string; month?: string }>;
+  searchParams?: Promise<{ error?: string; month?: string; ok?: string }>;
 };
 
 const MONTH_PARAM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -91,6 +92,7 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
     redirect(`/ferie?month=${monthContextBase.yearMonth}`);
   }
   const actionError = params?.error?.trim() ? params.error.trim() : null;
+  const actionOk = params?.ok === "1";
   const monthContext = resolveMonthContext(monthContextBase.yearMonth);
   const rows = await listLeaveRequests(profile);
 
@@ -112,6 +114,14 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
         >
           {actionError}
         </div>
+      ) : null}
+      {actionOk ? (
+        <>
+          <ClearOkParam />
+          <div role="status" className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+            Richiesta ferie inviata correttamente.
+          </div>
+        </>
       ) : null}
 
       <section className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
