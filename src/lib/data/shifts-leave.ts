@@ -225,6 +225,12 @@ async function listShiftsInMonth(params: {
   viewAll: boolean;
 }) {
   const supabase = await createServerSupabaseClient();
+  const shouldFallbackToLegacyAssigneeColumn = (error: { code?: string; message?: string; details?: string; hint?: string } | null) => {
+    if (!error) return false;
+    const blob = `${error.message ?? ""} ${error.details ?? ""} ${error.hint ?? ""}`.toLowerCase();
+    return error.code === "42703" || (blob.includes("assignee_profile_id") && blob.includes("does not exist"));
+  };
+
   const runShiftsQuery = async (assigneeColumn: "assignee_profile_id" | "assignee_id") => {
     let query = supabase
       .from("shifts")
@@ -253,7 +259,7 @@ async function listShiftsInMonth(params: {
   let { data, error, assigneeColumn } = await runShiftsQuery("assignee_profile_id");
 
   // Backward compatibility for DBs where the column is still called `assignee_id`.
-  if (error?.message?.includes("column shifts.assignee_profile_id does not exist")) {
+  if (shouldFallbackToLegacyAssigneeColumn(error)) {
     ({ data, error, assigneeColumn } = await runShiftsQuery("assignee_id"));
   }
 
