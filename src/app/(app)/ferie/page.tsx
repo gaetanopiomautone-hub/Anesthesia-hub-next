@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { requireSection } from "@/lib/auth/get-current-user-profile";
 import { getMonthContext } from "@/lib/dates/getMonthContext";
-import { listLeaveRequests, type LeaveRequestRow } from "@/lib/data/leave-requests";
+import { listLeaveRequests } from "@/lib/data/leave-requests";
 
 import {
   createLeaveRequestAction,
@@ -15,28 +15,8 @@ import { ClearOkParam } from "./clear-ok-param";
 import { LeaveRequestsList } from "./leave-requests-list";
 import { NewLeaveRequestForm } from "./new-leave-request-form";
 
-function requesterLabel(row: LeaveRequestRow) {
-  const name = row.requester?.full_name?.trim();
-  const email = row.requester?.email?.trim();
-
-  if (name && email) return `${name} · ${email}`;
-  if (name) return name;
-  if (email) return email;
-  return "Richiedente";
-}
-
-function personLabel(params: { full_name?: string | null; email?: string | null; fallback: string }) {
-  const name = params.full_name?.trim();
-  const email = params.email?.trim();
-
-  if (name && email) return `${name} · ${email}`;
-  if (name) return name;
-  if (email) return email;
-  return params.fallback;
-}
-
 type FeriePageProps = {
-  searchParams?: Promise<{ error?: string; errorCode?: string; month?: string; ok?: "created" | "updated" | "approved" | "rejected" | string }>;
+  searchParams?: Promise<{ error?: string; errorCode?: string; month?: string; ok?: "created" | "updated" | "approved" | "rejected" | "cancelled" | string }>;
 };
 
 const MONTH_PARAM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -108,6 +88,8 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
                 ? "Richiesta ferie approvata."
                 : actionOk === "rejected"
                   ? "Richiesta ferie rifiutata."
+                  : actionOk === "cancelled"
+                    ? "Richiesta ferie annullata."
                   : `Richiesta ferie inviata per ${monthContext?.monthLabel ?? "il periodo selezionato"}.`}
           </div>
         </>

@@ -25,6 +25,10 @@ const leaveDecisionSchema = z.object({
   adminNote: z.string().max(500).optional(),
 });
 
+const leaveCancelSchema = z.object({
+  id: z.string().uuid(),
+});
+
 const FERIE_PATH = "/ferie";
 
 const MONTH_PARAM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
@@ -40,7 +44,7 @@ function feriePathWithMonth(month: string | null) {
   return month ? `${FERIE_PATH}?month=${encodeURIComponent(month)}` : FERIE_PATH;
 }
 
-function feriePathWithOutcome(month: string | null, ok?: "created" | "updated" | "approved" | "rejected") {
+function feriePathWithOutcome(month: string | null, ok?: "created" | "updated" | "approved" | "rejected" | "cancelled") {
   const basePath = feriePathWithMonth(month);
   if (!ok) return basePath;
   const separator = basePath.includes("?") ? "&" : "?";
@@ -121,6 +125,16 @@ function parseLeaveDecisionForm(formData: FormData) {
   });
   if (!result.success) {
     redirectToFerieWithError("Dati della decisione non validi.");
+  }
+  return result.data;
+}
+
+function parseLeaveCancelForm(formData: FormData) {
+  const result = leaveCancelSchema.safeParse({
+    id: formData.get("id"),
+  });
+  if (!result.success) {
+    redirectToFerieWithError("Dati della richiesta non validi.");
   }
   return result.data;
 }
@@ -363,4 +377,53 @@ export async function rejectLeaveRequestAction(formData: FormData) {
 
   revalidateLeaveViews();
   redirect(feriePathWithOutcome(month, "rejected"));
+}
+
+export async function cancelLeaveRequestAction(formData: FormData) {
+  const month = readMonthParamFromForm(formData);
+  const profile = await requireFerieTrainee();
+  const parsed = parseLeaveCancelForm(formData);
+
+  const supabase = await createServerSupabaseClient();
+
+  const { data: existing, error: existingError } = await supabase
+    .from("leave_requests")
+    .select("id, user_id, status")
+    .eq("id", parsed.id)
+    .single();
+
+  if (existingError || !existing) {
+    redirectToFerieWithError("Richiesta non trovata o non accessibile.", month);
+  }
+
+  if (existing.user_id !== profile.id) {
+    redirectToFerieWithError("Non puoi annullare richieste di altri utenti.", month);
+  }
+
+  if (existing.status !== "pending") {
+    redirectToFerieWithError("Puoi annullare solo richieste ancora in attesa.", month);
+  }
+
+  const { data: updated, error } = await supabase
+    .from("leave_requests")
+    .update({
+      status: "cancelled",
+      reviewed_by: null,
+      reviewed_at: null,
+    })
+    .eq("id", parsed.id)
+    .eq("user_id", profile.id)
+    .eq("status", "pending")
+    .select("id");
+
+  if (error) {
+    redirectToFerieWithError(friendlyPostgresMessage(error), month);
+  }
+
+  if (!updated?.length) {
+    redirectToFerieWithError("Richiesta già elaborata o non più annullabile.", month);
+  }
+
+  revalidateLeaveViews();
+  redirect(feriePathWithOutcome(month, "cancelled"));
 }

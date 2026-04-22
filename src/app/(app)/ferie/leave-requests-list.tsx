@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import {
   approveLeaveRequestAction,
+  cancelLeaveRequestAction,
   rejectLeaveRequestAction,
   updateLeaveRequestAction,
 } from "@/app/(app)/ferie/actions";
@@ -107,23 +108,43 @@ export function LeaveRequestsList({ rows, profileId, canCreate, canDecide, month
                 <Badge variant={statusBadgeVariant(row.status)}>{leaveStatusLabelItalian(row.status)}</Badge>
                 <p className="text-xs text-muted-foreground">Creata il {formatDateItalian(row.created_at)}</p>
                 {canEdit ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (isEditing) {
-                        setEditingId(null);
-                        setDraftStart("");
-                        setDraftEnd("");
-                        return;
-                      }
-                      setEditingId(row.id);
-                      setDraftStart(row.start_date);
-                      setDraftEnd(row.end_date);
-                    }}
-                    className="rounded-lg border border-border px-3 py-1 text-xs font-medium hover:bg-secondary"
-                  >
-                    {isEditing ? "Chiudi modifica" : "Modifica"}
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (isEditing) {
+                          setEditingId(null);
+                          setDraftStart("");
+                          setDraftEnd("");
+                          return;
+                        }
+                        setEditingId(row.id);
+                        setDraftStart(row.start_date);
+                        setDraftEnd(row.end_date);
+                      }}
+                      className="rounded-lg border border-border px-3 py-1 text-xs font-medium hover:bg-secondary"
+                    >
+                      {isEditing ? "Chiudi modifica" : "Modifica"}
+                    </button>
+                    {!isEditing ? (
+                      <form
+                        action={cancelLeaveRequestAction}
+                        onSubmit={(e) => {
+                          const ok = window.confirm("Vuoi annullare questa richiesta ferie?");
+                          if (!ok) e.preventDefault();
+                        }}
+                      >
+                        <input type="hidden" name="id" value={row.id} />
+                        <input type="hidden" name="month" value={month} />
+                        <button
+                          type="submit"
+                          className="rounded-lg border border-destructive/40 px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/5"
+                        >
+                          Annulla richiesta
+                        </button>
+                      </form>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             </div>
