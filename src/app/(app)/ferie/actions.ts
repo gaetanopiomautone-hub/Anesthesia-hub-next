@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import type { PostgrestError } from "@supabase/supabase-js";
 import { z } from "zod";
 
+import { feriePathWithContext, parseFerieContextFromForm } from "@/app/(app)/ferie/ferie-url-context";
 import { requireUser } from "@/lib/auth/get-current-user-profile";
 import { canAccess } from "@/lib/auth/permissions";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -29,35 +30,15 @@ const leaveCancelSchema = z.object({
   id: z.string().uuid(),
 });
 
-const FERIE_PATH = "/ferie";
-
-const MONTH_PARAM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
-
-function readMonthParamFromForm(formData: FormData) {
-  const raw = formData.get("month");
-  if (typeof raw !== "string") return null;
-  const value = raw.trim();
-  return MONTH_PARAM_RE.test(value) ? value : null;
-}
-
-function feriePathWithMonth(month: string | null) {
-  return month ? `${FERIE_PATH}?month=${encodeURIComponent(month)}` : FERIE_PATH;
-}
-
-function feriePathWithOutcome(month: string | null, ok?: "created" | "updated" | "approved" | "rejected" | "cancelled") {
-  const basePath = feriePathWithMonth(month);
-  if (!ok) return basePath;
-  const separator = basePath.includes("?") ? "&" : "?";
-  return `${basePath}${separator}ok=${encodeURIComponent(ok)}`;
-}
-
-function redirectToFerieWithError(message: string, month: string | null = null, errorCode?: string): never {
-  const basePath = feriePathWithMonth(month);
-  const params = new URLSearchParams();
-  params.set("error", message);
-  if (errorCode) params.set("errorCode", errorCode);
-  const separator = basePath.includes("?") ? "&" : "?";
-  redirect(`${basePath}${separator}${params.toString()}`);
+function redirectToFerieWithError(message: string, context?: { month?: string | null; day?: string | null; errorCode?: string }): never {
+  redirect(
+    feriePathWithContext({
+      month: context?.month ?? null,
+      day: context?.day ?? null,
+      error: message,
+      errorCode: context?.errorCode,
+    }),
+  );
 }
 
 function friendlyPostgresMessage(error: PostgrestError): string {
@@ -151,6 +132,7 @@ async function ensureNoLeaveOverlapOrRedirect(params: {
   startDate: string;
   endDate: string;
   month: string | null;
+  day?: string | null;
   excludeId?: string;
 }) {
   let overlapQuery = params.supabase
@@ -169,11 +151,15 @@ async function ensureNoLeaveOverlapOrRedirect(params: {
   const { data: overlapRows, error: overlapError } = await overlapQuery;
 
   if (overlapError) {
-    redirectToFerieWithError(friendlyPostgresMessage(overlapError), params.month);
+    redirectToFerieWithError(friendlyPostgresMessage(overlapError), { month: params.month, day: params.day });
   }
 
   if (overlapRows?.length) {
-    redirectToFerieWithError("Hai già una richiesta ferie in questo periodo (anche parziale).", params.month, "overlap");
+    redirectToFerieWithError("Hai già una richiesta ferie in questo periodo (anche parziale).", {
+      month: params.month,
+      day: params.day,
+      errorCode: "overlap",
+    });
   }
 }
 
@@ -190,7 +176,7 @@ function normalizeLeaveRequestType(requestType: z.infer<typeof leaveRequestSchem
 }
 
 export async function createLeaveRequestAction(formData: FormData) {
-  const month = readMonthParamFromForm(formData);
+  const { month, day } = parseFerieContextFromForm(formData);
   const profile = await requireFerieTrainee();
   const parsed = parseLeaveRequestForm(formData);
   requireDateOrderOrRedirect(parsed.startDate, parsed.endDate);
@@ -203,6 +189,7 @@ export async function createLeaveRequestAction(formData: FormData) {
     startDate: parsed.startDate,
     endDate: parsed.endDate,
     month,
+    day,
   });
 
   const { error } = await supabase.from("leave_requests").insert({
@@ -217,15 +204,15 @@ export async function createLeaveRequestAction(formData: FormData) {
   });
 
   if (error) {
-    redirectToFerieWithError(friendlyPostgresMessage(error), month);
+    redirectToFerieWithError(friendlyPostgresMessage(error), { month, day });
   }
 
   revalidateLeaveViews();
-  redirect(feriePathWithOutcome(month, "created"));
+  redirect(feriePathWithContext({ month, day, ok: "created" }));
 }
 
 export async function updateLeaveRequestAction(formData: FormData) {
-  const month = readMonthParamFromForm(formData);
+  const { month, day } = parseFerieContextFromForm(formData);
   const profile = await requireFerieTrainee();
   const parsed = parseLeaveUpdateForm(formData);
   requireDateOrderOrRedirect(parsed.startDate, parsed.endDate);
@@ -257,6 +244,7 @@ export async function updateLeaveRequestAction(formData: FormData) {
     startDate: parsed.startDate,
     endDate: parsed.endDate,
     month,
+    day,
     excludeId: parsed.id,
   });
 
@@ -274,19 +262,19 @@ export async function updateLeaveRequestAction(formData: FormData) {
     .select("id");
 
   if (error) {
-    redirectToFerieWithError(friendlyPostgresMessage(error), month);
+    redirectToFerieWithError(friendlyPostgresMessage(error), { month, day });
   }
 
   if (!updated?.length) {
-    redirectToFerieWithError("La richiesta non è più modificabile (potrebbe essere già stata elaborata).", month);
+    redirectToFerieWithError("La richiesta non è più modificabile (potrebbe essere già stata elaborata).", { month, day });
   }
 
   revalidateLeaveViews();
-  redirect(feriePathWithOutcome(month, "updated"));
+  redirect(feriePathWithContext({ month, day, ok: "updated" }));
 }
 
 export async function approveLeaveRequestAction(formData: FormData) {
-  const month = readMonthParamFromForm(formData);
+  const { month, day } = parseFerieContextFromForm(formData);
   const profile = await requireFerieApprover();
   const parsed = parseLeaveDecisionForm(formData);
 
@@ -299,11 +287,11 @@ export async function approveLeaveRequestAction(formData: FormData) {
     .single();
 
   if (existingError || !existing) {
-    redirectToFerieWithError("Richiesta non trovata o non accessibile.", month);
+    redirectToFerieWithError("Richiesta non trovata o non accessibile.", { month, day });
   }
 
   if (existing.status !== "pending") {
-    redirectToFerieWithError("Puoi approvare solo richieste ancora in attesa.", month);
+    redirectToFerieWithError("Puoi approvare solo richieste ancora in attesa.", { month, day });
   }
 
   const reviewNote = parsed.adminNote?.trim();
@@ -321,19 +309,19 @@ export async function approveLeaveRequestAction(formData: FormData) {
     .select("id");
 
   if (error) {
-    redirectToFerieWithError(friendlyPostgresMessage(error), month);
+    redirectToFerieWithError(friendlyPostgresMessage(error), { month, day });
   }
 
   if (!updated?.length) {
-    redirectToFerieWithError("Richiesta già elaborata o non più in attesa.", month);
+    redirectToFerieWithError("Richiesta già elaborata o non più in attesa.", { month, day });
   }
 
   revalidateLeaveViews();
-  redirect(feriePathWithOutcome(month, "approved"));
+  redirect(feriePathWithContext({ month, day, ok: "approved" }));
 }
 
 export async function rejectLeaveRequestAction(formData: FormData) {
-  const month = readMonthParamFromForm(formData);
+  const { month, day } = parseFerieContextFromForm(formData);
   const profile = await requireFerieApprover();
   const parsed = parseLeaveDecisionForm(formData);
 
@@ -346,11 +334,11 @@ export async function rejectLeaveRequestAction(formData: FormData) {
     .single();
 
   if (existingError || !existing) {
-    redirectToFerieWithError("Richiesta non trovata o non accessibile.", month);
+    redirectToFerieWithError("Richiesta non trovata o non accessibile.", { month, day });
   }
 
   if (existing.status !== "pending") {
-    redirectToFerieWithError("Puoi rifiutare solo richieste ancora in attesa.", month);
+    redirectToFerieWithError("Puoi rifiutare solo richieste ancora in attesa.", { month, day });
   }
 
   const reviewNote = parsed.adminNote?.trim();
@@ -368,19 +356,19 @@ export async function rejectLeaveRequestAction(formData: FormData) {
     .select("id");
 
   if (error) {
-    redirectToFerieWithError(friendlyPostgresMessage(error), month);
+    redirectToFerieWithError(friendlyPostgresMessage(error), { month, day });
   }
 
   if (!updated?.length) {
-    redirectToFerieWithError("Richiesta già elaborata o non più in attesa.", month);
+    redirectToFerieWithError("Richiesta già elaborata o non più in attesa.", { month, day });
   }
 
   revalidateLeaveViews();
-  redirect(feriePathWithOutcome(month, "rejected"));
+  redirect(feriePathWithContext({ month, day, ok: "rejected" }));
 }
 
 export async function cancelLeaveRequestAction(formData: FormData) {
-  const month = readMonthParamFromForm(formData);
+  const { month, day } = parseFerieContextFromForm(formData);
   const profile = await requireFerieTrainee();
   const parsed = parseLeaveCancelForm(formData);
 
@@ -393,15 +381,15 @@ export async function cancelLeaveRequestAction(formData: FormData) {
     .single();
 
   if (existingError || !existing) {
-    redirectToFerieWithError("Richiesta non trovata o non accessibile.", month);
+    redirectToFerieWithError("Richiesta non trovata o non accessibile.", { month, day });
   }
 
   if (existing.user_id !== profile.id) {
-    redirectToFerieWithError("Non puoi annullare richieste di altri utenti.", month);
+    redirectToFerieWithError("Non puoi annullare richieste di altri utenti.", { month, day });
   }
 
   if (existing.status !== "pending") {
-    redirectToFerieWithError("Puoi annullare solo richieste ancora in attesa.", month);
+    redirectToFerieWithError("Puoi annullare solo richieste ancora in attesa.", { month, day });
   }
 
   const { data: updated, error } = await supabase
@@ -417,13 +405,13 @@ export async function cancelLeaveRequestAction(formData: FormData) {
     .select("id");
 
   if (error) {
-    redirectToFerieWithError(friendlyPostgresMessage(error), month);
+    redirectToFerieWithError(friendlyPostgresMessage(error), { month, day });
   }
 
   if (!updated?.length) {
-    redirectToFerieWithError("Richiesta già elaborata o non più annullabile.", month);
+    redirectToFerieWithError("Richiesta già elaborata o non più annullabile.", { month, day });
   }
 
   revalidateLeaveViews();
-  redirect(feriePathWithOutcome(month, "cancelled"));
+  redirect(feriePathWithContext({ month, day, ok: "cancelled" }));
 }

@@ -111,11 +111,13 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
       ) : null}
 
       <section className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-        <Card title="Nuova richiesta">
+        <div id="new-leave-request">
+          <Card title="Nuova richiesta">
           {canCreate ? (
             <NewLeaveRequestForm
               action={createLeaveRequestAction}
               month={monthContextBase.yearMonth}
+              day={normalizedDay}
               monthLabel={monthContext?.monthLabel ?? monthContextBase.yearMonth}
               defaultStartDate={monthContext?.defaultStartDate}
               defaultEndDate={monthContext?.defaultEndDate}
@@ -132,7 +134,8 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
               Solo gli specializzandi possono creare nuove richieste. Da qui puoi consultare lo storico e, se abilitato, gestire le approvazioni.
             </p>
           )}
-        </Card>
+          </Card>
+        </div>
 
         <FerieMonthView
           yearMonth={monthContextBase.yearMonth}

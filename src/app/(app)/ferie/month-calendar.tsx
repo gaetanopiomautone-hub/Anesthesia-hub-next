@@ -1,6 +1,6 @@
  "use client";
 
-import type { LeaveRequestRow } from "@/lib/data/leave-requests";
+import type { LeaveRequestRow } from "@/lib/domain/leave-request-shared";
 
 type MonthCalendarProps = {
   yearMonth: string;
@@ -64,12 +64,12 @@ function markersForDay(leaves: LeaveRequestRow[], ymd: string): Record<MarkerKey
 function markerClass(key: MarkerKey) {
   switch (key) {
     case "approved":
-      return "bg-emerald-500";
+      return "bg-green-500";
     case "rejected":
-      return "bg-rose-500";
+      return "bg-red-500";
     case "pending":
     default:
-      return "bg-slate-500";
+      return "bg-gray-500";
   }
 }
 
@@ -89,7 +89,7 @@ export function MonthCalendar({ yearMonth, leaves, selectedDate, onSelectDate }:
       <div className="grid grid-cols-7 gap-2">
         {cells.map((ymd, idx) => {
           if (!ymd) {
-            return <div key={`empty-${idx}`} className="min-h-20 rounded-lg border border-dashed border-border/60 bg-background/50" />;
+            return <div key={`empty-${idx}`} className="min-h-[72px] rounded-lg border border-dashed border-border/60 bg-background/50 md:min-h-[84px]" />;
           }
 
           const day = Number(ymd.slice(-2));
@@ -105,9 +105,9 @@ export function MonthCalendar({ yearMonth, leaves, selectedDate, onSelectDate }:
               type="button"
               onClick={() => onSelectDate(ymd)}
               className={[
-                "min-h-20 rounded-lg border bg-background px-2 py-2 text-left transition-colors",
+                "min-h-[72px] rounded-lg border bg-background px-2 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 md:min-h-[84px]",
                 isSelected
-                  ? "border-primary bg-primary/5 ring-1 ring-primary/20"
+                  ? "border-primary bg-primary/10 ring-2 ring-primary/35"
                   : "border-border hover:bg-secondary/40",
               ].join(" ")}
             >

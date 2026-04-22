@@ -4,8 +4,8 @@ import { useMemo, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { Card } from "@/components/ui/card";
-import { formatDateItalian, type LeaveRequestRow } from "@/lib/data/leave-requests";
 import { hasDateOverlap } from "@/lib/dates/hasDateOverlap";
+import { formatDateItalian, type LeaveRequestRow } from "@/lib/domain/leave-request-shared";
 
 import { LeaveRequestsList } from "./leave-requests-list";
 import { MonthCalendar } from "./month-calendar";
@@ -45,9 +45,33 @@ export function FerieMonthView({ yearMonth, initialSelectedDate, rows, profileId
     router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname);
   };
 
+  const clearSelectedDate = () => {
+    setSelectedDate(null);
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.set("month", yearMonth);
+    nextParams.delete("day");
+    const nextQuery = nextParams.toString();
+    router.replace(nextQuery ? `${pathname}?${nextQuery}` : pathname);
+  };
+
   return (
     <>
       <Card title="Calendario mese" description="Panoramica visiva delle richieste: pending (grigio), approved (verde), rejected (rosso).">
+        <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+          <span className="font-medium text-foreground">Legenda:</span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5">
+            <span className="h-2 w-2 rounded-full bg-gray-500" />
+            In attesa
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5">
+            <span className="h-2 w-2 rounded-full bg-green-500" />
+            Approvata
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5">
+            <span className="h-2 w-2 rounded-full bg-red-500" />
+            Rifiutata
+          </span>
+        </div>
         <MonthCalendar
           yearMonth={yearMonth}
           leaves={rows}
@@ -63,23 +87,33 @@ export function FerieMonthView({ yearMonth, initialSelectedDate, rows, profileId
       >
         {selectedDate ? (
           <div className="mb-3 flex items-center gap-2">
-            <span className="rounded-full border border-border bg-secondary px-2.5 py-1 text-xs text-muted-foreground">
+            <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-foreground">
               Filtro: {formatDateItalian(selectedDate)}
             </span>
             <button
               type="button"
-              onClick={() => setSelectedDate(null)}
-              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary"
+              onClick={clearSelectedDate}
+              className="rounded-lg border border-border px-2.5 py-1 text-xs font-medium hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
             >
-              Rimuovi filtro
+              × Rimuovi
             </button>
           </div>
         ) : null}
 
         {filteredRows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nessuna richiesta per il giorno selezionato.</p>
+          <div className="rounded-lg border border-dashed border-border bg-secondary/20 px-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              {selectedDate ? "Nessuna richiesta per il giorno selezionato." : "Nessuna richiesta nel mese selezionato."}
+            </p>
+            <a
+              href="#new-leave-request"
+              className="mt-3 inline-flex rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+            >
+              Nuova richiesta ferie
+            </a>
+          </div>
         ) : (
-          <LeaveRequestsList rows={filteredRows} profileId={profileId} profileRole={profileRole} month={month} />
+          <LeaveRequestsList rows={filteredRows} profileId={profileId} profileRole={profileRole} month={month} day={selectedDate} />
         )}
       </Card>
     </>

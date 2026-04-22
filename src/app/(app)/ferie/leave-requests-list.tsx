@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { Badge } from "@/components/ui/badge";
 import {
   approveLeaveRequestAction,
   cancelLeaveRequestAction,
@@ -14,7 +13,7 @@ import {
   leaveStatusLabelItalian,
   leaveTypeLabelItalian,
   type LeaveRequestRow,
-} from "@/lib/data/leave-requests";
+} from "@/lib/domain/leave-request-shared";
 import { hasDateOverlap } from "@/lib/dates/hasDateOverlap";
 import type { AppRole } from "@/lib/auth/roles";
 import {
@@ -28,6 +27,7 @@ type LeaveRequestsListProps = {
   profileId: string;
   profileRole: AppRole;
   month: string;
+  day?: string | null;
 };
 
 function requesterLabel(row: LeaveRequestRow) {
@@ -39,17 +39,17 @@ function requesterLabel(row: LeaveRequestRow) {
   return "Richiedente";
 }
 
-function statusBadgeVariant(status: LeaveRequestRow["status"]): "default" | "success" | "warning" | "danger" {
+function statusChipClass(status: LeaveRequestRow["status"]) {
   switch (status) {
     case "approved":
-      return "success";
-    case "pending":
-      return "warning";
+      return "bg-green-100 text-green-800";
     case "rejected":
-      return "danger";
+      return "bg-red-100 text-red-800";
+    case "pending":
+      return "bg-gray-100 text-gray-800";
     case "cancelled":
     default:
-      return "default";
+      return "bg-gray-50 text-gray-500";
   }
 }
 
@@ -62,7 +62,7 @@ function useDebouncedValue<T>(value: T, delayMs = 150) {
   return debounced;
 }
 
-export function LeaveRequestsList({ rows, profileId, profileRole, month }: LeaveRequestsListProps) {
+export function LeaveRequestsList({ rows, profileId, profileRole, month, day = null }: LeaveRequestsListProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftStart, setDraftStart] = useState("");
   const [draftEnd, setDraftEnd] = useState("");
@@ -94,8 +94,6 @@ export function LeaveRequestsList({ rows, profileId, profileRole, month }: Leave
   return (
     <div className="space-y-3">
       {rows.map((row) => {
-        const isOwn = row.user_id === profileId;
-        const isPending = row.status === "pending";
         const canEdit = canEditLeaveRequest({ request: row, currentUserId: profileId, currentUserRole: profileRole });
         const canCancel = canCancelLeaveRequest({ request: row, currentUserId: profileId, currentUserRole: profileRole });
         const canReview = canReviewLeaveRequest({ request: row, currentUserId: profileId, currentUserRole: profileRole });
@@ -112,7 +110,9 @@ export function LeaveRequestsList({ rows, profileId, profileRole, month }: Leave
                 <p className="text-xs text-muted-foreground">{leaveTypeLabelItalian(row.request_type)}</p>
               </div>
               <div className="flex flex-col items-end gap-2">
-                <Badge variant={statusBadgeVariant(row.status)}>{leaveStatusLabelItalian(row.status)}</Badge>
+                <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${statusChipClass(row.status)}`}>
+                  {leaveStatusLabelItalian(row.status)}
+                </span>
                 <p className="text-xs text-muted-foreground">Creata il {formatDateItalian(row.created_at)}</p>
                 {canEdit ? (
                   <div className="flex items-center gap-2">
@@ -129,7 +129,7 @@ export function LeaveRequestsList({ rows, profileId, profileRole, month }: Leave
                         setDraftStart(row.start_date);
                         setDraftEnd(row.end_date);
                       }}
-                      className="rounded-lg border border-border px-3 py-1 text-xs font-medium hover:bg-secondary"
+                      className="rounded-lg border border-border px-3 py-1 text-xs font-medium hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                     >
                       {isEditing ? "Chiudi modifica" : "Modifica"}
                     </button>
@@ -143,9 +143,10 @@ export function LeaveRequestsList({ rows, profileId, profileRole, month }: Leave
                       >
                         <input type="hidden" name="id" value={row.id} />
                         <input type="hidden" name="month" value={month} />
+                        <input type="hidden" name="day" value={day ?? ""} />
                         <button
                           type="submit"
-                          className="rounded-lg border border-destructive/40 px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/5"
+                          className="rounded-lg border border-destructive/40 px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40"
                         >
                           Annulla richiesta
                         </button>
@@ -173,6 +174,7 @@ export function LeaveRequestsList({ rows, profileId, profileRole, month }: Leave
                 <form action={updateLeaveRequestAction} className="grid gap-2">
                   <input type="hidden" name="id" value={row.id} />
                   <input type="hidden" name="month" value={month} />
+                  <input type="hidden" name="day" value={day ?? ""} />
                   <select
                     name="requestType"
                     defaultValue={row.request_type}
@@ -219,7 +221,7 @@ export function LeaveRequestsList({ rows, profileId, profileRole, month }: Leave
                         setDraftStart("");
                         setDraftEnd("");
                       }}
-                      className="rounded-lg border border-border px-3 py-1 text-xs font-medium hover:bg-secondary"
+                      className="rounded-lg border border-border px-3 py-1 text-xs font-medium hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                     >
                       Annulla
                     </button>
@@ -233,6 +235,7 @@ export function LeaveRequestsList({ rows, profileId, profileRole, month }: Leave
                 <form action={approveLeaveRequestAction} className="grid gap-2">
                   <input type="hidden" name="id" value={row.id} />
                   <input type="hidden" name="month" value={month} />
+                  <input type="hidden" name="day" value={day ?? ""} />
                   <input
                     name="adminNote"
                     className="rounded-lg border border-border bg-background px-2 py-1 text-xs"
@@ -245,6 +248,7 @@ export function LeaveRequestsList({ rows, profileId, profileRole, month }: Leave
                 <form action={rejectLeaveRequestAction} className="grid gap-2">
                   <input type="hidden" name="id" value={row.id} />
                   <input type="hidden" name="month" value={month} />
+                  <input type="hidden" name="day" value={day ?? ""} />
                   <input
                     name="adminNote"
                     className="rounded-lg border border-border bg-background px-2 py-1 text-xs"

@@ -1,5 +1,5 @@
 import type { AppRole } from "@/lib/auth/roles";
-import type { LeaveRequestRow } from "@/lib/data/leave-requests";
+import type { LeaveRequestRow } from "@/lib/domain/leave-request-shared";
 
 type PermissionContext = {
   request: LeaveRequestRow;

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import type { LeaveRequestStatus } from "@/lib/data/leave-requests";
+import type { LeaveRequestStatus } from "@/lib/domain/leave-request-shared";
 import { hasDateOverlap } from "@/lib/dates/hasDateOverlap";
 
 type ExistingLeave = {
@@ -13,6 +13,7 @@ type ExistingLeave = {
 
 type NewLeaveRequestFormProps = {
   month: string;
+  day?: string | null;
   monthLabel: string;
   defaultStartDate?: string;
   defaultEndDate?: string;
@@ -45,6 +46,7 @@ function formatRange(start: string, end: string) {
 
 export function NewLeaveRequestForm({
   month,
+  day = null,
   monthLabel,
   defaultStartDate,
   defaultEndDate,
@@ -72,6 +74,7 @@ export function NewLeaveRequestForm({
   return (
     <form action={action} className="grid gap-4">
       <input type="hidden" name="month" value={month} />
+      <input type="hidden" name="day" value={day ?? ""} />
 
       <p className="rounded-lg border border-border bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">
         Stai inserendo una richiesta per {monthLabel}.
