@@ -225,34 +225,49 @@ async function listShiftsInMonth(params: {
   viewAll: boolean;
 }) {
   const supabase = await createServerSupabaseClient();
-  let query = supabase
-    .from("shifts")
-    .select(
-      `
-      id,
-      shift_date,
-      shift_kind,
-      assignee_profile_id,
-      clinical_locations ( name, area_type )
-    `,
-    )
-    .gte("shift_date", params.monthStart)
-    .lte("shift_date", params.monthEnd)
-    .order("shift_date", { ascending: true })
-    .order("shift_kind", { ascending: true });
+  const runShiftsQuery = async (assigneeColumn: "assignee_profile_id" | "assignee_id") => {
+    let query = supabase
+      .from("shifts")
+      .select(
+        `
+        id,
+        shift_date,
+        shift_kind,
+        ${assigneeColumn},
+        clinical_locations ( name, area_type )
+      `,
+      )
+      .gte("shift_date", params.monthStart)
+      .lte("shift_date", params.monthEnd)
+      .order("shift_date", { ascending: true })
+      .order("shift_kind", { ascending: true });
 
-  if (!params.viewAll && params.assigneeId) {
-    query = query.eq("assignee_profile_id", params.assigneeId);
+    if (!params.viewAll && params.assigneeId) {
+      query = query.eq(assigneeColumn, params.assigneeId);
+    }
+
+    const { data, error } = await query;
+    return { data, error, assigneeColumn };
+  };
+
+  let { data, error, assigneeColumn } = await runShiftsQuery("assignee_profile_id");
+
+  // Backward compatibility for DBs where the column is still called `assignee_id`.
+  if (error?.message?.includes("column shifts.assignee_profile_id does not exist")) {
+    ({ data, error, assigneeColumn } = await runShiftsQuery("assignee_id"));
   }
-
-  const { data, error } = await query;
 
   if (error) {
     throw new Error(`shifts month query failed: ${error.message}`);
   }
 
   const rows = (data ?? []).map((raw) => {
-    const row = raw as Omit<ShiftListRow, "clinical_locations" | "assignee"> & {
+    const row = raw as {
+      id: string | null;
+      shift_date: string | null;
+      shift_kind: string | null;
+      assignee_profile_id?: string | null;
+      assignee_id?: string | null;
       clinical_locations:
         | { name: string; area_type: "sala_operatoria" | "rianimazione" }
         | { name: string; area_type: "sala_operatoria" | "rianimazione" }[]
@@ -263,7 +278,7 @@ async function listShiftsInMonth(params: {
       id: String(row.id ?? ""),
       shift_date: String(row.shift_date ?? "").trim(),
       shift_kind: (String(row.shift_kind ?? "giornaliero").trim() || "giornaliero") as ShiftKind,
-      assignee_profile_id: row.assignee_profile_id ?? null,
+      assignee_profile_id: (row[assigneeColumn] ?? null) as string | null,
       clinical_locations: firstOrNull(row.clinical_locations),
       assignee: null,
     } satisfies ShiftListRow;
