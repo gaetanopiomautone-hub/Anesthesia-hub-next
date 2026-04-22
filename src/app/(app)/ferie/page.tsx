@@ -23,6 +23,7 @@ import {
   updateLeaveRequestAction,
 } from "./actions";
 import { ClearOkParam } from "./clear-ok-param";
+import { NewLeaveRequestForm } from "./new-leave-request-form";
 
 function requesterLabel(row: LeaveRequestRow) {
   const name = row.requester?.full_name?.trim();
@@ -130,46 +131,20 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
       <section className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
         <Card title="Nuova richiesta">
           {canCreate ? (
-            <form action={createLeaveRequestAction} className="grid gap-4">
-              <input type="hidden" name="month" value={monthContextBase.yearMonth} />
-              {monthContext ? (
-                <p className="rounded-lg border border-border bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">
-                  Stai inserendo una richiesta per {monthContext.monthLabel}.
-                </p>
-              ) : null}
-              <select name="requestType" className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-                <option value="vacation">Ferie</option>
-                <option value="permission">Permesso</option>
-                <option value="sick_leave">Malattia</option>
-                <option value="conference">Congresso</option>
-                <option value="other">Altro</option>
-              </select>
-              <input
-                name="startDate"
-                type="date"
-                defaultValue={monthContext?.defaultStartDate}
-                min={monthContext?.minDate}
-                max={monthContext?.maxDate}
-                className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
-              />
-              <input
-                name="endDate"
-                type="date"
-                defaultValue={monthContext?.defaultEndDate}
-                min={monthContext?.minDate}
-                max={monthContext?.maxDate}
-                className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
-              />
-              <textarea
-                name="reason"
-                rows={4}
-                className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                placeholder="Motivazione sintetica o preferenza di rotazione"
-              />
-              <button type="submit" className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-                Invia richiesta
-              </button>
-            </form>
+            <NewLeaveRequestForm
+              action={createLeaveRequestAction}
+              month={monthContextBase.yearMonth}
+              monthLabel={monthContext?.monthLabel ?? monthContextBase.yearMonth}
+              defaultStartDate={monthContext?.defaultStartDate}
+              defaultEndDate={monthContext?.defaultEndDate}
+              minDate={monthContext?.minDate}
+              maxDate={monthContext?.maxDate}
+              existingLeaves={rows.map((row) => ({
+                start: row.start_date,
+                end: row.end_date,
+                status: row.status,
+              }))}
+            />
           ) : (
             <p className="text-sm text-muted-foreground">
               Solo gli specializzandi possono creare nuove richieste. Da qui puoi consultare lo storico e, se abilitato, gestire le approvazioni.
