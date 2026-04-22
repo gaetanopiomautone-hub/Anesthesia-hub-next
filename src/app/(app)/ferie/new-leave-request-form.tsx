@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import type { LeaveRequestStatus } from "@/lib/data/leave-requests";
 import { hasDateOverlap } from "@/lib/dates/hasDateOverlap";
@@ -22,6 +22,27 @@ type NewLeaveRequestFormProps = {
   action: (formData: FormData) => void | Promise<void>;
 };
 
+function useDebouncedValue<T>(value: T, delayMs = 150) {
+  const [debounced, setDebounced] = useState(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [delayMs, value]);
+
+  return debounced;
+}
+
+function formatIsoDate(isoDate: string) {
+  const [y, m, d] = isoDate.split("-");
+  if (!y || !m || !d) return isoDate;
+  return `${d}/${m}/${y}`;
+}
+
+function formatRange(start: string, end: string) {
+  return `${formatIsoDate(start)} → ${formatIsoDate(end)}`;
+}
+
 export function NewLeaveRequestForm({
   month,
   monthLabel,
@@ -34,17 +55,19 @@ export function NewLeaveRequestForm({
 }: NewLeaveRequestFormProps) {
   const [startDate, setStartDate] = useState(defaultStartDate ?? "");
   const [endDate, setEndDate] = useState(defaultEndDate ?? "");
+  const debouncedStart = useDebouncedValue(startDate, 150);
+  const debouncedEnd = useDebouncedValue(endDate, 150);
 
   const overlappingLeave = useMemo(() => {
-    if (!startDate || !endDate) return null;
+    if (!debouncedStart || !debouncedEnd) return null;
     return (
       existingLeaves.find(
         (leave) =>
           (leave.status === "pending" || leave.status === "approved") &&
-          hasDateOverlap(startDate, endDate, leave.start, leave.end),
+          hasDateOverlap(debouncedStart, debouncedEnd, leave.start, leave.end),
       ) ?? null
     );
-  }, [endDate, existingLeaves, startDate]);
+  }, [debouncedEnd, debouncedStart, existingLeaves]);
 
   return (
     <form action={action} className="grid gap-4">
@@ -56,7 +79,8 @@ export function NewLeaveRequestForm({
 
       {overlappingLeave ? (
         <div className="rounded-lg border border-yellow-200 bg-yellow-50 px-3 py-2 text-xs text-yellow-800">
-          Attenzione: esiste gia una richiesta in questo periodo ({overlappingLeave.start} → {overlappingLeave.end}).
+          Attenzione: esiste gia una richiesta dal <strong>{formatRange(overlappingLeave.start, overlappingLeave.end)}</strong>.
+          {" "}Modifica quella esistente oppure scegli altre date.
         </div>
       ) : null}
 

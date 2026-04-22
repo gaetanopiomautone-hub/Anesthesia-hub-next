@@ -56,6 +56,24 @@ function approvalMeta(row: LeaveRequestRow) {
   return `${who} · ${formatDateItalian(row.reviewed_at)}`;
 }
 
+function formatRange(startDate: string, endDate: string) {
+  return `${formatDateItalian(startDate)} → ${formatDateItalian(endDate)}`;
+}
+
+function statusBadgeVariant(status: LeaveRequestRow["status"]): "default" | "success" | "warning" | "danger" {
+  switch (status) {
+    case "approved":
+      return "success";
+    case "pending":
+      return "warning";
+    case "rejected":
+      return "danger";
+    case "cancelled":
+    default:
+      return "default";
+  }
+}
+
 type FeriePageProps = {
   searchParams?: Promise<{ error?: string; errorCode?: string; month?: string; ok?: string }>;
 };
@@ -169,9 +187,7 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
                 header: "Periodo",
                 render: (row) => (
                   <div className="space-y-1">
-                    <p>
-                      {formatDateItalian(row.start_date)} {"->"} {formatDateItalian(row.end_date)}
-                    </p>
+                    <p className="font-medium">{formatRange(row.start_date, row.end_date)}</p>
                     <p className="text-xs text-muted-foreground">{leaveTypeLabelItalian(row.request_type)}</p>
                   </div>
                 ),
@@ -180,17 +196,7 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
                 header: "Stato",
                 render: (row) => (
                   <div className="space-y-2">
-                    <Badge
-                      variant={
-                        row.status === "pending"
-                          ? "warning"
-                          : row.status === "approved"
-                            ? "success"
-                            : row.status === "cancelled"
-                              ? "default"
-                              : "danger"
-                      }
-                    >
+                    <Badge variant={statusBadgeVariant(row.status)}>
                       {leaveStatusLabelItalian(row.status)}
                     </Badge>
                     <p className="text-xs text-muted-foreground">Revisione: {approvalMeta(row)}</p>
