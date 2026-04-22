@@ -3,7 +3,8 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { canViewAllShifts } from "@/lib/domain/shift-permissions";
 import { normalizeShiftStatus, type ShiftRow, type ShiftType } from "@/lib/domain/shift-shared";
 
-const ASSIGNEE_COLUMNS = ["assignee_profile_id", "assignee_id", "user_id"] as const;
+/** Prefer canonical prod columns first (user_id), then dev/schema.sql variants. */
+const ASSIGNEE_COLUMNS = ["user_id", "assignee_profile_id", "assignee_id"] as const;
 
 type ShiftRaw = Record<string, unknown> & {
   id?: string | null;
@@ -38,46 +39,14 @@ function resolveAssigneeColumn(rows: ShiftRaw[]) {
 export async function listShiftsInMonth(profile: CurrentUserProfile, params: { monthStart: string; monthEnd: string }) {
   const supabase = await createServerSupabaseClient();
 
-  const selectWithWorkflowFields = `
-    id,
-    shift_date,
-    shift_kind,
-    shift_type,
-    assignee_profile_id,
-    assignee_id,
-    user_id,
-    status,
-    proposed_by,
-    submitted_at,
-    approved_by,
-    approved_at,
-    rejected_by,
-    rejected_at,
-    rejection_reason
-  `;
-
-  let data: unknown[] | null = null;
-  let error: { message: string } | null = null;
-  const firstAttempt = await supabase
+  // Always `select("*")` so we never break production where column names differ
+  // (e.g. only `user_id` + `shift_kind`, no `shift_type` / `assignee_profile_id` / workflow cols).
+  const { data, error } = await supabase
     .from("shifts")
-    .select(selectWithWorkflowFields)
+    .select("*")
     .gte("shift_date", params.monthStart)
     .lte("shift_date", params.monthEnd)
     .order("shift_date", { ascending: true });
-  data = firstAttempt.data as unknown[] | null;
-  error = firstAttempt.error;
-
-  const missingColumnError = String(error?.message ?? "").toLowerCase().includes("column");
-  if (error && missingColumnError) {
-    const fallbackAttempt = await supabase
-      .from("shifts")
-      .select("*")
-      .gte("shift_date", params.monthStart)
-      .lte("shift_date", params.monthEnd)
-      .order("shift_date", { ascending: true });
-    data = fallbackAttempt.data as unknown[] | null;
-    error = fallbackAttempt.error;
-  }
 
   if (error) {
     throw new Error(`shifts query failed: ${error.message}`);
@@ -147,38 +116,22 @@ export async function listSubmittedShiftsInMonth(profile: CurrentUserProfile, pa
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from("shifts")
-    .select(
-      `
-      id,
-      shift_date,
-      shift_kind,
-      shift_type,
-      assignee_profile_id,
-      assignee_id,
-      user_id,
-      status,
-      proposed_by,
-      submitted_at,
-      approved_by,
-      approved_at,
-      rejected_by,
-      rejected_at,
-      rejection_reason
-    `,
-    )
+    .select("*")
     .gte("shift_date", params.monthStart)
     .lte("shift_date", params.monthEnd)
-    .eq("status", "submitted")
-    .order("shift_date", { ascending: true })
-    .order("shift_kind", { ascending: true });
+    .order("shift_date", { ascending: true });
 
   if (error) {
-    const legacySchema = String(error.message ?? "").toLowerCase().includes("status");
-    if (legacySchema) return [];
     throw new Error(`submitted shifts query failed: ${error.message}`);
   }
 
-  const rawRows = (data ?? []) as ShiftRaw[];
+  const allRows = (data ?? []) as ShiftRaw[];
+  const rawRows = allRows.filter((row) => normalizeShiftStatus(row.status) === "submitted");
+  rawRows.sort(
+    (a, b) =>
+      String(a.shift_date ?? "").localeCompare(String(b.shift_date ?? "")) ||
+      String(resolveShiftType(a)).localeCompare(String(resolveShiftType(b))),
+  );
   const assigneeColumn = resolveShiftAssigneeColumn(rawRows);
   const normalizedRows: ShiftRow[] = rawRows.map((row) => {
     const userIdRaw = assigneeColumn ? row[assigneeColumn] : null;
