@@ -221,8 +221,6 @@ export function assigneeDisplayName(shift: ShiftListRow) {
 async function listShiftsInMonth(params: {
   monthStart: string;
   monthEnd: string;
-  assigneeId: string | null;
-  viewAll: boolean;
 }) {
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
@@ -242,32 +240,11 @@ async function listShiftsInMonth(params: {
     throw new Error(`shifts month query failed: ${error.message}`);
   }
 
-  const extractAssigneeProfileId = (row: Record<string, unknown>): string | null => {
-    const candidates = [
-      row.assignee_profile_id,
-      row.assignee_id,
-      row.user_id,
-      row.profile_id,
-      row.specializzando_id,
-      row.trainee_profile_id,
-    ];
-    for (const value of candidates) {
-      if (typeof value === "string" && value.trim()) return value.trim();
-    }
-    return null;
-  };
-
   const rows = (data ?? []).map((raw) => {
     const row = raw as {
       id: string | null;
       shift_date: string | null;
       shift_kind: string | null;
-      assignee_profile_id?: string | null;
-      assignee_id?: string | null;
-      user_id?: string | null;
-      profile_id?: string | null;
-      specializzando_id?: string | null;
-      trainee_profile_id?: string | null;
       clinical_locations:
         | { name: string; area_type: "sala_operatoria" | "rianimazione" }
         | { name: string; area_type: "sala_operatoria" | "rianimazione" }[]
@@ -278,37 +255,12 @@ async function listShiftsInMonth(params: {
       id: String(row.id ?? ""),
       shift_date: String(row.shift_date ?? "").trim(),
       shift_kind: (String(row.shift_kind ?? "giornaliero").trim() || "giornaliero") as ShiftKind,
-      assignee_profile_id: extractAssigneeProfileId(row),
+      assignee_profile_id: null,
       clinical_locations: firstOrNull(row.clinical_locations),
       assignee: null,
     } satisfies ShiftListRow;
   });
-
-  const filteredRows = !params.viewAll && params.assigneeId ? rows.filter((r) => r.assignee_profile_id === params.assigneeId) : rows;
-
-  const assigneeIds = Array.from(
-    new Set(filteredRows.map((r) => r.assignee_profile_id).filter((id): id is string => Boolean(id))),
-  );
-
-  if (assigneeIds.length === 0) return filteredRows;
-
-  const { data: profiles, error: profilesError } = await supabase
-    .from("profiles")
-    .select("id, full_name, email")
-    .in("id", assigneeIds);
-
-  if (profilesError) {
-    throw new Error(`profiles for shifts query failed: ${profilesError.message}`);
-  }
-
-  const profileById = new Map(
-    (profiles ?? []).map((p) => [String(p.id), { full_name: p.full_name ?? null, email: p.email ?? null }]),
-  );
-
-  return filteredRows.map((r) => ({
-    ...r,
-    assignee: r.assignee_profile_id ? (profileById.get(r.assignee_profile_id) ?? null) : null,
-  }));
+  return rows;
 }
 
 async function listLeavesOverlappingMonth(params: { monthStart: string; monthEnd: string; assigneeId: string | null; viewAll: boolean }) {
@@ -398,30 +350,22 @@ export async function loadTurniFeriePageData(
   profile: CurrentUserProfile,
   params: { monthStart: string; monthEnd: string; assigneeId: string | null },
 ) {
-  const isTrainee = profile.role === "specializzando";
-  const isAdmin = profile.role === "admin";
-  const viewAll = isAdmin ? params.assigneeId === null : !isTrainee;
-
-  const effectiveAssignee = isTrainee ? profile.id : params.assigneeId;
-
   const [shifts, leaves] = await Promise.all([
     listShiftsInMonth({
       monthStart: params.monthStart,
       monthEnd: params.monthEnd,
-      assigneeId: effectiveAssignee,
-      viewAll,
     }),
     listLeavesOverlappingMonth({
       monthStart: params.monthStart,
       monthEnd: params.monthEnd,
-      assigneeId: effectiveAssignee,
-      viewAll,
+      assigneeId: null,
+      viewAll: true,
     }),
   ]);
 
   const shiftUi = buildShiftRowsWithLeaveUi(shifts, leaves);
   const conflicts = buildConflictRows(shifts, leaves, params.monthStart, params.monthEnd);
-  const assigneeOptions = await listSpecializzandiForFilter(profile);
+  const assigneeOptions: { id: string; full_name: string; email: string }[] = [];
 
   return {
     shifts,
