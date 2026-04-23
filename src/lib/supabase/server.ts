@@ -17,8 +17,16 @@ export async function createServerSupabaseClient() {
       getAll() {
         return cookieStore.getAll();
       },
-      setAll(_cookiesToSet: CookieToSet[]) {
-        // no-op: nei Server Components non si possono modificare i cookie
+      setAll(cookiesToSet: CookieToSet[]) {
+        // In alcuni contesti server (es. Server Components) i cookie non sono mutabili.
+        // Ignoriamo in sicurezza per evitare crash, ma nei contesti compatibili persistiamo.
+        try {
+          cookiesToSet.forEach(({ name, value, options }) => {
+            cookieStore.set(name, value, options);
+          });
+        } catch {
+          // no-op
+        }
       },
     },
   });
