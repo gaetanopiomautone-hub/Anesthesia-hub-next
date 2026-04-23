@@ -38,14 +38,23 @@ export default async function TurniPage({ searchParams }: TurniPageProps) {
   const monthStart = format(monthContext.start, "yyyy-MM-dd");
   const monthEnd = format(monthContext.end, "yyyy-MM-dd");
   const { rows } = await listShiftsInMonth(profile, { monthStart, monthEnd });
-  const canPropose = canProposeShifts(profile);
-  const canApprove = canApproveShifts(profile);
+  const canPropose = canProposeShifts({ role: profile.role });
+  const canApprove = canApproveShifts({ role: profile.role });
   const submittedRows = canApprove ? await listSubmittedShiftsInMonth(profile, { monthStart, monthEnd }) : [];
-  const assigneeOptions = canApprove
-    ? await listAssignableUsers()
-    : canPropose
-      ? [{ id: profile.id, full_name: profile.full_name, email: profile.email }]
-      : [];
+
+  let assigneeOptions: { id: string; full_name: string | null; email: string | null }[] = [];
+  if (canApprove) {
+    assigneeOptions = await listAssignableUsers();
+  }
+  if (!assigneeOptions.length && canPropose) {
+    assigneeOptions = [
+      {
+        id: profile.id,
+        full_name: profile.full_name ?? null,
+        email: profile.email ?? null,
+      },
+    ];
+  }
 
   return (
     <div className="space-y-6">
@@ -54,6 +63,12 @@ export default async function TurniPage({ searchParams }: TurniPageProps) {
         title="Assegnazioni operative del mese"
         description="Vista mese/giorno per consultare e assegnare turni con flusso rapido."
       />
+
+      {canApprove ? (
+        <p className="text-xs text-muted-foreground" data-debug="turni-assignee-options">
+          Debug: ruolo {profile.role}, assegnabili {assigneeOptions.length}
+        </p>
+      ) : null}
 
       {params.error ? (
         <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
