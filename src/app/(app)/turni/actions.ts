@@ -297,17 +297,14 @@ export async function approveShiftAction(formData: FormData) {
 
 export async function rejectShiftAction(formData: FormData) {
   const rawShiftId = formData.get("shiftId") ?? formData.get("id") ?? formData.get("shift_id");
-  const parsed = shiftRejectSchema.safeParse({
-    shiftId: rawShiftId,
-    reason: formData.get("reason"),
-    month: formData.get("month"),
-    day: formData.get("day"),
-  });
+  const shiftId = typeof rawShiftId === "string" ? rawShiftId.trim() : "";
+  const rawReason = formData.get("reason");
+  const reason = typeof rawReason === "string" ? rawReason.trim() : "";
   const monthContext = getMonthContext(typeof formData.get("month") === "string" ? String(formData.get("month")) : undefined);
   const month = monthContext.yearMonth;
   const day = normalizeDayInMonth(typeof formData.get("day") === "string" ? String(formData.get("day")) : undefined, month);
 
-  if (!parsed.success) {
+  if (!shiftId) {
     redirect(
       turniPathWithContext(
         month,
@@ -317,13 +314,16 @@ export async function rejectShiftAction(formData: FormData) {
       ),
     );
   }
+  if (reason.length > 400) {
+    redirect(turniPathWithContext(month, day, undefined, "Dati rifiuto non validi (motivo troppo lungo)."));
+  }
 
   const profile = await requireUser();
   if (!canApproveShifts(profile)) {
     redirect("/forbidden");
   }
 
-  const { supabase, shift, shiftError } = await loadShiftForUpdate(parsed.data.shiftId);
+  const { supabase, shift, shiftError } = await loadShiftForUpdate(shiftId);
   if (shiftError || !shift) {
     redirect(turniPathWithContext(month, day, undefined, "Turno non trovato."));
   }
@@ -335,11 +335,11 @@ export async function rejectShiftAction(formData: FormData) {
   if ("status" in shiftRow) updatePayload.status = "rejected";
   if ("rejected_by" in shiftRow) updatePayload.rejected_by = profile.id;
   if ("rejected_at" in shiftRow) updatePayload.rejected_at = new Date().toISOString();
-  if ("rejection_reason" in shiftRow) updatePayload.rejection_reason = parsed.data.reason?.trim() || null;
+  if ("rejection_reason" in shiftRow) updatePayload.rejection_reason = reason || null;
   if (Object.keys(updatePayload).length === 0) {
     redirect(turniPathWithContext(month, day, undefined, "Schema turni non aggiornato per rifiuto."));
   }
-  const { error: updateError } = await supabase.from("shifts").update(updatePayload).eq("id", parsed.data.shiftId);
+  const { error: updateError } = await supabase.from("shifts").update(updatePayload).eq("id", shiftId);
   if (updateError) {
     redirect(turniPathWithContext(month, day, undefined, `Rifiuto proposta non riuscito: ${updateError.message}`));
   }
