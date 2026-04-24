@@ -17,6 +17,12 @@ const shiftAssignSchema = z.object({
   month: z.string().optional(),
   day: z.string().optional(),
 });
+
+const optionalStringFromForm = z.preprocess(
+  (value) => (typeof value === "string" && value.trim() === "" ? undefined : value ?? undefined),
+  z.string().optional(),
+);
+
 const shiftApproveSchema = z.object({
   shiftId: z.string().min(1),
   userId: z.preprocess(
@@ -27,10 +33,16 @@ const shiftApproveSchema = z.object({
   day: z.string().optional(),
 });
 const shiftRejectSchema = z.object({
-  shiftId: z.string().min(1),
-  reason: z.string().max(400).optional(),
-  month: z.string().optional(),
-  day: z.string().optional(),
+  shiftId: z.preprocess(
+    (value) => (typeof value === "string" ? value.trim() : value),
+    z.string().min(1),
+  ),
+  reason: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.string().max(400).optional(),
+  ),
+  month: optionalStringFromForm,
+  day: optionalStringFromForm,
 });
 
 function turniPathWithContext(month: string, day?: string | null, ok?: string, error?: string) {
