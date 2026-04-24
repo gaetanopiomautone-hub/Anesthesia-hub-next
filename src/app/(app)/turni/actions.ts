@@ -19,7 +19,10 @@ const shiftAssignSchema = z.object({
 });
 const shiftApproveSchema = z.object({
   shiftId: z.string().min(1),
-  userId: z.string().uuid().optional(),
+  userId: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() === "" ? undefined : value),
+    z.string().uuid().optional(),
+  ),
   month: z.string().optional(),
   day: z.string().optional(),
 });
