@@ -64,12 +64,6 @@ export default async function TurniPage({ searchParams }: TurniPageProps) {
         description="Vista mese/giorno per consultare e assegnare turni con flusso rapido."
       />
 
-      {canApprove ? (
-        <p className="text-xs text-muted-foreground" data-debug="turni-assignee-options">
-          Debug: ruolo {profile.role}, assegnabili {assigneeOptions.length}
-        </p>
-      ) : null}
-
       {params.error ? (
         <div role="alert" className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
           {params.error}
