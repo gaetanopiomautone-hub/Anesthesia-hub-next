@@ -1,5 +1,6 @@
 -- Minimal and strict RLS policies for the core workflow tables:
---   profiles, leave_requests, procedure_catalog, logbook_entries, shifts
+--   profiles, leave_requests, procedure_catalog, logbook_entries, shifts,
+--   monthly_shift_plans, shift_items
 -- Assumes public.profiles is the single source of truth for role.
 
 -- ---------------------------------------------------------------------------
@@ -345,6 +346,134 @@ on public.learning_resources
 for delete
 to authenticated
 using (public.get_my_role() = 'admin');
+
+-- ---------------------------------------------------------------------------
+-- monthly_shift_plans
+-- Rules:
+-- - select: admin, tutor, specializzando
+-- - insert: solo admin (creazione piano / import mese)
+-- - update: admin completo; specializzando solo se non approved e non imposta approved
+-- - delete: solo admin
+-- - approvazione mese: solo admin (status = approved)
+-- ---------------------------------------------------------------------------
+
+alter table public.monthly_shift_plans enable row level security;
+
+drop policy if exists "monthly_shift_plans_select_all_roles" on public.monthly_shift_plans;
+create policy "monthly_shift_plans_select_all_roles"
+on public.monthly_shift_plans
+for select
+to authenticated
+using (
+  public.is_admin()
+  or public.is_tutor()
+  or public.is_specializzando()
+);
+
+drop policy if exists "monthly_shift_plans_insert_admin" on public.monthly_shift_plans;
+create policy "monthly_shift_plans_insert_admin"
+on public.monthly_shift_plans
+for insert
+to authenticated
+with check (public.is_admin());
+
+drop policy if exists "monthly_shift_plans_update_admin" on public.monthly_shift_plans;
+create policy "monthly_shift_plans_update_admin"
+on public.monthly_shift_plans
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "monthly_shift_plans_update_specializzando_non_approved" on public.monthly_shift_plans;
+create policy "monthly_shift_plans_update_specializzando_non_approved"
+on public.monthly_shift_plans
+for update
+to authenticated
+using (
+  public.is_specializzando()
+  and status in ('draft', 'submitted')
+)
+with check (
+  public.is_specializzando()
+  and status in ('draft', 'submitted')
+  and status <> 'approved'
+);
+
+drop policy if exists "monthly_shift_plans_delete_admin" on public.monthly_shift_plans;
+create policy "monthly_shift_plans_delete_admin"
+on public.monthly_shift_plans
+for delete
+to authenticated
+using (public.is_admin());
+
+-- ---------------------------------------------------------------------------
+-- shift_items
+-- Rules:
+-- - select: admin, tutor, specializzando
+-- - insert: solo admin (import Excel / righe generate lato app)
+-- - update: admin sempre; specializzando se piano non approved
+-- - delete: solo admin
+-- ---------------------------------------------------------------------------
+
+alter table public.shift_items enable row level security;
+
+drop policy if exists "shift_items_select_all_roles" on public.shift_items;
+create policy "shift_items_select_all_roles"
+on public.shift_items
+for select
+to authenticated
+using (
+  public.is_admin()
+  or public.is_tutor()
+  or public.is_specializzando()
+);
+
+drop policy if exists "shift_items_insert_admin" on public.shift_items;
+create policy "shift_items_insert_admin"
+on public.shift_items
+for insert
+to authenticated
+with check (public.is_admin());
+
+drop policy if exists "shift_items_update_admin" on public.shift_items;
+create policy "shift_items_update_admin"
+on public.shift_items
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "shift_items_update_specializzando_if_plan_not_approved" on public.shift_items;
+create policy "shift_items_update_specializzando_if_plan_not_approved"
+on public.shift_items
+for update
+to authenticated
+using (
+  public.is_specializzando()
+  and exists (
+    select 1
+    from public.monthly_shift_plans p
+    where p.id = shift_items.plan_id
+      and p.status <> 'approved'
+  )
+)
+with check (
+  public.is_specializzando()
+  and exists (
+    select 1
+    from public.monthly_shift_plans p
+    where p.id = shift_items.plan_id
+      and p.status <> 'approved'
+  )
+);
+
+drop policy if exists "shift_items_delete_admin" on public.shift_items;
+create policy "shift_items_delete_admin"
+on public.shift_items
+for delete
+to authenticated
+using (public.is_admin());
 
 -- ---------------------------------------------------------------------------
 -- Storage: bucket privato learning-pdfs (PDF didattici)

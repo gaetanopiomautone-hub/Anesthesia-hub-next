@@ -290,6 +290,47 @@ create table if not exists public.logbook_entries (
 );
 
 -- ---------------------------------------------------------------------------
+-- Turnistica mensile (piano mese + righe turno assegnabili)
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.monthly_shift_plans (
+  id uuid primary key default gen_random_uuid(),
+  year int not null,
+  month int not null check (month between 1 and 12),
+  status text not null default 'draft'
+    check (status in ('draft', 'submitted', 'approved')),
+  created_by uuid references public.profiles (id) on delete set null,
+  submitted_at timestamptz,
+  approved_by uuid references public.profiles (id) on delete set null,
+  approved_at timestamptz,
+  reopened_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (year, month)
+);
+
+create table if not exists public.shift_items (
+  id uuid primary key default gen_random_uuid(),
+  plan_id uuid not null references public.monthly_shift_plans (id) on delete cascade,
+  shift_date date not null,
+  kind text not null check (kind in ('sala', 'ambulatorio', 'reperibilita')),
+  period text not null check (period in ('mattina', 'pomeriggio', 'giornata', 'reperibilita')),
+  start_time time,
+  end_time time,
+  label text not null,
+  room_name text,
+  specialty text,
+  source text not null default 'generated'
+    check (source in ('excel', 'generated')),
+  assigned_to uuid references public.profiles (id) on delete set null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists shift_items_plan_id_shift_date_idx
+  on public.shift_items (plan_id, shift_date);
+
+-- ---------------------------------------------------------------------------
 -- Helper: current role from profiles (used by RLS policies)
 -- ---------------------------------------------------------------------------
 
@@ -333,6 +374,16 @@ for each row execute function public.set_updated_at();
 drop trigger if exists logbook_entries_set_updated_at on public.logbook_entries;
 create trigger logbook_entries_set_updated_at
 before update on public.logbook_entries
+for each row execute function public.set_updated_at();
+
+drop trigger if exists monthly_shift_plans_set_updated_at on public.monthly_shift_plans;
+create trigger monthly_shift_plans_set_updated_at
+before update on public.monthly_shift_plans
+for each row execute function public.set_updated_at();
+
+drop trigger if exists shift_items_set_updated_at on public.shift_items;
+create trigger shift_items_set_updated_at
+before update on public.shift_items
 for each row execute function public.set_updated_at();
 
 -- ---------------------------------------------------------------------------
