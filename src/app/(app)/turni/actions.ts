@@ -17,6 +17,12 @@ const shiftAssignSchema = z.object({
   month: z.string().optional(),
   day: z.string().optional(),
 });
+const shiftApproveSchema = z.object({
+  shiftId: z.string().min(1),
+  userId: z.string().uuid().optional(),
+  month: z.string().optional(),
+  day: z.string().optional(),
+});
 const shiftRejectSchema = z.object({
   shiftId: z.string().min(1),
   reason: z.string().max(400).optional(),
@@ -196,7 +202,15 @@ export async function submitShiftProposalAction(formData: FormData) {
 }
 
 export async function approveShiftAction(formData: FormData) {
-  const { parsed, month, day } = resolveMonthAndDay(formData);
+  const parsed = shiftApproveSchema.safeParse({
+    shiftId: formData.get("shiftId"),
+    userId: formData.get("userId"),
+    month: formData.get("month"),
+    day: formData.get("day"),
+  });
+  const monthContext = getMonthContext(typeof formData.get("month") === "string" ? String(formData.get("month")) : undefined);
+  const month = monthContext.yearMonth;
+  const day = normalizeDayInMonth(typeof formData.get("day") === "string" ? String(formData.get("day")) : undefined, month);
   if (!parsed.success) {
     redirect(turniPathWithContext(month, day, undefined, "Dati approvazione non validi."));
   }
@@ -217,7 +231,7 @@ export async function approveShiftAction(formData: FormData) {
   if (!shiftDateColumn) {
     redirect(turniPathWithContext(month, day, undefined, "Schema turni non compatibile con data turno."));
   }
-  const assigneeId = String((shiftRow[assigneeColumn] ?? parsed.data.userId) || "").trim();
+  const assigneeId = String((shiftRow[assigneeColumn] ?? parsed.data.userId ?? "") || "").trim();
   const shiftDate = String((shiftRow[shiftDateColumn] ?? "")).trim();
   if (!assigneeId || !shiftDate) {
     redirect(turniPathWithContext(month, day, undefined, "Proposta non valida: assegnatario o data mancanti."));
@@ -235,6 +249,12 @@ export async function approveShiftAction(formData: FormData) {
     redirect(turniPathWithContext(month, day, undefined, conflictError));
   }
   const updatePayload: Record<string, unknown> = {};
+  if (!String(shiftRow[assigneeColumn] ?? "").trim()) {
+    updatePayload[assigneeColumn] = assigneeId;
+  }
+  if ("date" in shiftRow && !String(shiftRow.date ?? "").trim() && shiftDate) {
+    updatePayload.date = shiftDate;
+  }
   if ("status" in shiftRow) updatePayload.status = "approved";
   if ("approved_by" in shiftRow) updatePayload.approved_by = profile.id;
   if ("approved_at" in shiftRow) updatePayload.approved_at = new Date().toISOString();
