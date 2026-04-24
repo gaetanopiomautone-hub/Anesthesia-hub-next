@@ -296,8 +296,9 @@ export async function approveShiftAction(formData: FormData) {
 }
 
 export async function rejectShiftAction(formData: FormData) {
+  const rawShiftId = formData.get("shiftId") ?? formData.get("id") ?? formData.get("shift_id");
   const parsed = shiftRejectSchema.safeParse({
-    shiftId: formData.get("shiftId"),
+    shiftId: rawShiftId,
     reason: formData.get("reason"),
     month: formData.get("month"),
     day: formData.get("day"),
@@ -307,7 +308,14 @@ export async function rejectShiftAction(formData: FormData) {
   const day = normalizeDayInMonth(typeof formData.get("day") === "string" ? String(formData.get("day")) : undefined, month);
 
   if (!parsed.success) {
-    redirect(turniPathWithContext(month, day, undefined, "Dati rifiuto non validi."));
+    redirect(
+      turniPathWithContext(
+        month,
+        day,
+        undefined,
+        `Dati rifiuto non validi (shiftId=${typeof rawShiftId === "string" ? rawShiftId : "missing"}).`,
+      ),
+    );
   }
 
   const profile = await requireUser();
