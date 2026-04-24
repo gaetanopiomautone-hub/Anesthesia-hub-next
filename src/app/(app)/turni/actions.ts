@@ -49,6 +49,12 @@ async function loadShiftForUpdate(shiftId: string) {
 }
 
 function resolveShiftAssigneeColumn(shiftRow: Record<string, unknown>) {
+  const userId = String(shiftRow.user_id ?? "").trim();
+  if (userId) return "user_id";
+  const assigneeProfileId = String(shiftRow.assignee_profile_id ?? "").trim();
+  if (assigneeProfileId) return "assignee_profile_id";
+  const assigneeId = String(shiftRow.assignee_id ?? "").trim();
+  if (assigneeId) return "assignee_id";
   if ("user_id" in shiftRow) return "user_id";
   if ("assignee_profile_id" in shiftRow) return "assignee_profile_id";
   if ("assignee_id" in shiftRow) return "assignee_id";
@@ -56,6 +62,10 @@ function resolveShiftAssigneeColumn(shiftRow: Record<string, unknown>) {
 }
 
 function resolveShiftDateColumn(shiftRow: Record<string, unknown>) {
+  const shiftDate = String(shiftRow.shift_date ?? "").trim();
+  if (shiftDate) return "shift_date";
+  const date = String(shiftRow.date ?? "").trim();
+  if (date) return "date";
   if ("shift_date" in shiftRow) return "shift_date";
   if ("date" in shiftRow) return "date";
   return null;
