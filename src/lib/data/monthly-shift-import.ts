@@ -67,9 +67,9 @@ export async function importMonthlyPlanning(params: {
   extraHolidayYmds?: string[];
 }): Promise<ImportMonthlyPlanningResult> {
   const profile = await requireRole(["admin"]);
-  // Debug temporaneo: verifica che la service role key sia visibile nel runtime server.
+  // Debug temporaneo: stderr così compare nei log ERROR / stesso canale degli stack trace.
   // eslint-disable-next-line no-console
-  console.log("SERVICE_ROLE_PRESENT", Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY));
+  console.error("SERVICE_ROLE_PRESENT", Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY));
   const { year, month, fileBuffer, extraHolidayYmds } = params;
 
   const supabase = await createServerSupabaseClient();
