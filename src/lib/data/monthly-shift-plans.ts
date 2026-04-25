@@ -67,3 +67,106 @@ export async function listShiftItemsByPlanId(planId: string): Promise<ShiftItemR
   }
   return (data ?? []).map((r) => mapItem(r as Record<string, unknown>));
 }
+
+export async function getShiftItemById(shiftItemId: string): Promise<ShiftItemRow | null> {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase.from("shift_items").select("*").eq("id", shiftItemId).maybeSingle();
+  if (error) {
+    throw new Error(`shift_items by id: ${error.message}`);
+  }
+  if (!data) return null;
+  return mapItem(data as Record<string, unknown>);
+}
+
+/** Altre righe stesso piano/data già assegnate a `userId` (es. per vincolo “no doppia sala+amb stesso giorno”). */
+export async function listShiftItemsSamePlanDateUserExcluding(
+  planId: string,
+  shiftDate: string,
+  userId: string,
+  excludeShiftItemId: string,
+): Promise<ShiftItemRow[]> {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("shift_items")
+    .select("*")
+    .eq("plan_id", planId)
+    .eq("shift_date", shiftDate)
+    .eq("assigned_to", userId)
+    .neq("id", excludeShiftItemId);
+
+  if (error) {
+    throw new Error(`shift_items same day user: ${error.message}`);
+  }
+  return (data ?? []).map((r) => mapItem(r as Record<string, unknown>));
+}
+
+export async function getMonthlyShiftPlanById(planId: string): Promise<MonthlyShiftPlanRow | null> {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase.from("monthly_shift_plans").select("*").eq("id", planId).maybeSingle();
+  if (error) {
+    throw new Error(`monthly_shift_plans by id: ${error.message}`);
+  }
+  if (!data) return null;
+  return mapPlan(data as Record<string, unknown>);
+}
+
+/**
+ * Assegna un operatore a una riga `shift_items`. Rispetta RLS; a livello app non si modifica se il piano è `approved`.
+ */
+export async function updateShiftAssignment(shiftItemId: string, userId: string | null) {
+  const supabase = await createServerSupabaseClient();
+  const { error } = await supabase
+    .from("shift_items")
+    .update({ assigned_to: userId, updated_at: new Date().toISOString() })
+    .eq("id", shiftItemId);
+
+  if (error) throw new Error(error.message);
+}
+
+export async function submitMonthlyPlan(planId: string) {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("monthly_shift_plans")
+    .update({ status: "submitted", submitted_at: new Date().toISOString() })
+    .eq("id", planId)
+    .eq("status", "draft")
+    .select("id");
+
+  if (error) throw new Error(error.message);
+  if (!data?.length) throw new Error("Nessun piano in bozza aggiornato (già inviato o inesistente).");
+}
+
+export async function approveMonthlyPlan(planId: string, userId: string) {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("monthly_shift_plans")
+    .update({
+      status: "approved",
+      approved_by: userId,
+      approved_at: new Date().toISOString(),
+    })
+    .eq("id", planId)
+    .in("status", ["draft", "submitted"])
+    .select("id");
+
+  if (error) throw new Error(error.message);
+  if (!data?.length) throw new Error("Approvazione non possibile: stato del piano inatteso o già approvato.");
+}
+
+export async function reopenMonthlyPlan(planId: string) {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("monthly_shift_plans")
+    .update({
+      status: "draft",
+      reopened_at: new Date().toISOString(),
+      approved_by: null,
+      approved_at: null,
+    })
+    .eq("id", planId)
+    .eq("status", "approved")
+    .select("id");
+
+  if (error) throw new Error(error.message);
+  if (!data?.length) throw new Error("Riapertura non possibile: il piano non è in stato approvato.");
+}

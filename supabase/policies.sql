@@ -412,7 +412,7 @@ using (public.is_admin());
 -- Rules:
 -- - select: admin, tutor, specializzando
 -- - insert: solo admin (import Excel / righe generate lato app)
--- - update: admin sempre; specializzando se piano non approved
+-- - update: admin sempre; specializzando solo se piano in draft (dopo invio: solo admin)
 -- - delete: solo admin
 -- ---------------------------------------------------------------------------
 
@@ -445,7 +445,7 @@ using (public.is_admin())
 with check (public.is_admin());
 
 drop policy if exists "shift_items_update_specializzando_if_plan_not_approved" on public.shift_items;
-create policy "shift_items_update_specializzando_if_plan_not_approved"
+create policy "shift_items_update_specializzando_draft_only"
 on public.shift_items
 for update
 to authenticated
@@ -455,7 +455,7 @@ using (
     select 1
     from public.monthly_shift_plans p
     where p.id = shift_items.plan_id
-      and p.status <> 'approved'
+      and p.status = 'draft'
   )
 )
 with check (
@@ -464,7 +464,7 @@ with check (
     select 1
     from public.monthly_shift_plans p
     where p.id = shift_items.plan_id
-      and p.status <> 'approved'
+      and p.status = 'draft'
   )
 );
 

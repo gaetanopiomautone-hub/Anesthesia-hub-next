@@ -1,15 +1,13 @@
-import { format } from "date-fns";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
-import { approveShiftAction, rejectShiftAction } from "@/app/(app)/turni/actions";
 import { requireSection } from "@/lib/auth/get-current-user-profile";
-import { listAssignableUsers, listShiftsInMonth, listSubmittedShiftsInMonth } from "@/lib/data/shifts";
-import { normalizeDayInMonth } from "@/lib/dates/day-in-month";
+import { getMonthlyShiftPlanByYearMonth, listShiftItemsByPlanId } from "@/lib/data/monthly-shift-plans";
+import { listAssignableUsers } from "@/lib/data/shifts";
 import { getMonthContext } from "@/lib/dates/getMonthContext";
-import { canApproveShifts, canProposeShifts } from "@/lib/domain/shift-permissions";
-import { assigneeLabel, shiftTypeLabelItalian } from "@/lib/domain/shift-shared";
+import { monthlyShiftPlanStatusLabelItalian } from "@/lib/domain/monthly-shifts";
 
 import { TurniMonthView } from "./turni-month-view";
 
@@ -30,38 +28,30 @@ export default async function TurniPage({ searchParams }: TurniPageProps) {
     redirect(`/turni?month=${monthContext.yearMonth}`);
   }
 
-  const normalizedDay = normalizeDayInMonth(params.day, monthContext.yearMonth);
-  if (params.day && !normalizedDay) {
-    redirect(`/turni?month=${monthContext.yearMonth}`);
-  }
+  const y = monthContext.start.getFullYear();
+  const m = monthContext.start.getMonth() + 1;
+  const yearMonth = monthContext.yearMonth;
 
-  const monthStart = format(monthContext.start, "yyyy-MM-dd");
-  const monthEnd = format(monthContext.end, "yyyy-MM-dd");
-  const { rows } = await listShiftsInMonth(profile, { monthStart, monthEnd });
-  const canPropose = canProposeShifts({ role: profile.role });
-  const canApprove = canApproveShifts({ role: profile.role });
-  const submittedRows = canApprove ? await listSubmittedShiftsInMonth(profile, { monthStart, monthEnd }) : [];
-
-  let assigneeOptions: { id: string; full_name: string | null; email: string | null }[] = [];
-  if (canApprove) {
-    assigneeOptions = await listAssignableUsers();
-  }
-  if (!assigneeOptions.length && canPropose) {
-    assigneeOptions = [
-      {
-        id: profile.id,
-        full_name: profile.full_name ?? null,
-        email: profile.email ?? null,
-      },
-    ];
-  }
+  const plan = await getMonthlyShiftPlanByYearMonth({ year: y, month: m });
+  const items = plan ? await listShiftItemsByPlanId(plan.id) : [];
+  const assigneeOptions = await listAssignableUsers();
 
   return (
     <div className="space-y-6">
       <PageHeader
-        eyebrow="Calendario turni"
-        title="Assegnazioni operative del mese"
-        description="Vista mese/giorno per consultare e assegnare turni con flusso rapido."
+        eyebrow="Turnistica"
+        title="Piano turni del mese"
+        description="Turni per sala, ambulatorio e reperibilità, legati al planning mensile (import e assegnazioni in un unico flusso)."
+        actions={
+          profile.role === "admin" ? (
+            <Link
+              href="/turni/import"
+              className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+            >
+              Import planning Excel
+            </Link>
+          ) : null
+        }
       />
 
       {params.error ? (
@@ -69,93 +59,70 @@ export default async function TurniPage({ searchParams }: TurniPageProps) {
           {params.error}
         </div>
       ) : null}
-      {params.ok === "draft_saved" ? (
-        <div role="status" className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800">
-          Bozza salvata correttamente.
+      {params.ok === "import_done" ? (
+        <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Import turnistica mensile completato: il piano e le voci turno sono stati creati in bozza.
         </div>
       ) : null}
-      {params.ok === "submitted" ? (
+      {params.ok === "plan_submitted" ? (
         <div role="status" className="rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
-          Proposta inviata per validazione.
+          Piano mese segnato come inviato.
         </div>
       ) : null}
-      {params.ok === "approved" ? (
+      {params.ok === "plan_approved" ? (
         <div role="status" className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-          Turno approvato.
+          Piano mese approvato. Le assegnazioni non sono più modificabili.
         </div>
       ) : null}
-      {params.ok === "rejected" ? (
-        <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Proposta respinta.
+      {params.ok === "plan_reopened" ? (
+        <div role="status" className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Piano mese riaperto: ora è di nuovo in bozza.
         </div>
       ) : null}
 
-      {canApprove ? (
-        <Card title="Da validare" description="Proposte inviate dagli specializzandi in attesa di decisione.">
-          {submittedRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nessuna proposta in attesa per il mese selezionato.</p>
+      {!plan ? (
+        <Card
+          title="Nessun planning per questo mese"
+          description="Non esiste un piano attivo in database per il periodo selezionato."
+        >
+          <p className="text-sm text-muted-foreground">Mese selezionato: {yearMonth}.</p>
+          {profile.role === "admin" ? (
+            <p className="mt-2 text-sm">
+              Crea voci e piano da un file con{" "}
+              <Link href="/turni/import" className="text-primary underline-offset-2 hover:underline">
+                import Excel
+              </Link>
+              .
+            </p>
           ) : (
-            <div className="space-y-3">
-              {submittedRows.map((row) => (
-                <div key={`submitted-${row.id}`} className="rounded-lg border border-border bg-background p-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="space-y-1">
-                      <div className="text-sm font-medium text-foreground">
-                        {row.shift_date} · {shiftTypeLabelItalian(row.shift_type)}
-                      </div>
-                      <p className="text-xs text-muted-foreground">Assegnatario proposto: {assigneeLabel(row)}</p>
-                      <p className="text-xs text-muted-foreground">
-                        Proposto da: {row.proposer?.full_name?.trim() || row.proposer?.email?.trim() || row.proposed_by || "—"}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <form action={approveShiftAction}>
-                        <input type="hidden" name="shiftId" value={row.id} />
-                        <input type="hidden" name="userId" value={row.user_id ?? ""} />
-                        <input type="hidden" name="month" value={monthContext.yearMonth} />
-                        <button
-                          type="submit"
-                          className="rounded-lg border border-green-200 px-3 py-1 text-xs font-medium text-green-700 hover:bg-green-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-400/50"
-                        >
-                          Approva
-                        </button>
-                      </form>
-                      <form action={rejectShiftAction}>
-                        <input type="hidden" name="shiftId" value={row.id} />
-                        <input type="hidden" name="month" value={monthContext.yearMonth} />
-                        <button
-                          type="submit"
-                          className="rounded-lg border border-destructive/30 px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/40"
-                        >
-                          Rifiuta
-                        </button>
-                      </form>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+            <p className="mt-2 text-sm text-muted-foreground">Contatta l’amministratore per l’import del mese.</p>
           )}
         </Card>
-      ) : null}
-
-      <section className="grid gap-6 lg:grid-cols-[0.95fr_1.05fr]">
-        <Card title="Riepilogo mese">
-          <p className="text-sm text-muted-foreground">Mese visualizzato: {monthContext.yearMonth}</p>
-          <p className="mt-2 text-3xl font-semibold text-foreground">{rows.length}</p>
-          <p className="text-sm text-muted-foreground">turni pianificati</p>
-        </Card>
-        <TurniMonthView
-          yearMonth={monthContext.yearMonth}
-          initialSelectedDate={normalizedDay}
-          rows={rows}
-          currentUserId={profile.id}
-          currentUserRole={profile.role}
-          canPropose={canPropose}
-          canApprove={canApprove}
-          assigneeOptions={assigneeOptions}
-        />
-      </section>
+      ) : (
+        <section>
+          <Card
+            className="mb-4"
+            title="Piano in database"
+            description="Stato e voci per il mese. Naviga mese o modifica mese in alto nella vista sotto."
+          >
+            <div className="flex flex-wrap items-baseline justify-between gap-2 text-sm">
+              <p className="text-muted-foreground">Periodo: {plan.year}/{(plan.month < 10 ? "0" : "") + plan.month}</p>
+              <span className="font-medium text-foreground">{monthlyShiftPlanStatusLabelItalian(plan.status)}</span>
+            </div>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {items.length} voci turno in database per questo mese.
+            </p>
+          </Card>
+          <TurniMonthView
+            yearMonth={yearMonth}
+            plan={plan}
+            items={items}
+            currentUserId={profile.id}
+            currentUserRole={profile.role}
+            assigneeOptions={assigneeOptions}
+          />
+        </section>
+      )}
     </div>
   );
 }
