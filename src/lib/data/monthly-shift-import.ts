@@ -3,9 +3,20 @@ import { buildAllShiftItemsForImport } from "@/lib/import/planning-parser";
 import type { ShiftItemDraft } from "@/lib/import/planning-parser";
 import { getMonthlyShiftPlanByYearMonth } from "@/lib/data/monthly-shift-plans";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getSupabaseEnv } from "@/lib/supabase/env";
 import type { MonthlyShiftPlanRow } from "@/lib/domain/monthly-shifts";
+import { createClient } from "@supabase/supabase-js";
 
 const INSERT_CHUNK = 200;
+
+function createServiceRoleSupabaseClient() {
+  const { url } = getSupabaseEnv();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceRoleKey) {
+    throw new Error("Missing environment variable: SUPABASE_SERVICE_ROLE_KEY");
+  }
+  return createClient(url, serviceRoleKey);
+}
 
 type InsertRow = {
   plan_id: string;
@@ -55,19 +66,11 @@ export async function importMonthlyPlanning(params: {
   fileBuffer: ArrayBuffer;
   extraHolidayYmds?: string[];
 }): Promise<ImportMonthlyPlanningResult> {
-  // Debug runtime: conferma che la server action entra davvero qui.
-  // eslint-disable-next-line no-console
-  console.log("🔥 IMPORT ACTION START");
   const profile = await requireRole(["admin"]);
   const { year, month, fileBuffer, extraHolidayYmds } = params;
 
   const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-    error: userErr,
-  } = await supabase.auth.getUser();
-  // eslint-disable-next-line no-console
-  console.log("RLS_IMPORT_SERVER_USER", user?.id ?? null, userErr?.message ?? null);
+  const supabaseAdmin = createServiceRoleSupabaseClient();
 
   const { data: existing, error: existingErr } = await supabase
     .from("monthly_shift_plans")
@@ -88,7 +91,7 @@ export async function importMonthlyPlanning(params: {
 
   const { sala, all } = buildAllShiftItemsForImport(year, month, fileBuffer, { extraHolidayYmds });
 
-  const { data: inserted, error: insertPlanErr } = await supabase
+  const { data: inserted, error: insertPlanErr } = await supabaseAdmin
     .from("monthly_shift_plans")
     .insert({
       year,
@@ -111,9 +114,9 @@ export async function importMonthlyPlanning(params: {
   const rows = toInsertRows(planId, all);
   for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
     const chunk = rows.slice(i, i + INSERT_CHUNK);
-    const { error: itemsErr } = await supabase.from("shift_items").insert(chunk);
+    const { error: itemsErr } = await supabaseAdmin.from("shift_items").insert(chunk);
     if (itemsErr) {
-      await supabase.from("monthly_shift_plans").delete().eq("id", planId);
+      await supabaseAdmin.from("monthly_shift_plans").delete().eq("id", planId);
       return { ok: false, error: `shift_items: ${itemsErr.message}`, code: "DB" };
     }
   }
