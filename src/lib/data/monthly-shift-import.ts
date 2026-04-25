@@ -55,10 +55,19 @@ export async function importMonthlyPlanning(params: {
   fileBuffer: ArrayBuffer;
   extraHolidayYmds?: string[];
 }): Promise<ImportMonthlyPlanningResult> {
+  // Debug runtime: conferma che la server action entra davvero qui.
+  // eslint-disable-next-line no-console
+  console.log("🔥 IMPORT ACTION START");
   const profile = await requireRole(["admin"]);
   const { year, month, fileBuffer, extraHolidayYmds } = params;
 
   const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+    error: userErr,
+  } = await supabase.auth.getUser();
+  // eslint-disable-next-line no-console
+  console.log("RLS_IMPORT_SERVER_USER", user?.id ?? null, userErr?.message ?? null);
 
   const { data: existing, error: existingErr } = await supabase
     .from("monthly_shift_plans")
