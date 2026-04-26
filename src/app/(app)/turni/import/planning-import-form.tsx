@@ -46,6 +46,7 @@ export function PlanningImportForm() {
   const [importError, setImportError] = useState<string | null>(null);
   const [importDuplicateYearMonth, setImportDuplicateYearMonth] = useState<string | null>(null);
   const [existingDbPlan, setExistingDbPlan] = useState<{ yearMonth: string; label: string } | null>(null);
+  const [overwrite, setOverwrite] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -73,6 +74,10 @@ export function PlanningImportForm() {
       });
     }, 350);
     return () => window.clearTimeout(t);
+  }, [year, month]);
+
+  useEffect(() => {
+    setOverwrite(false);
   }, [year, month]);
 
   const runPreview = () => {
@@ -118,7 +123,9 @@ export function PlanningImportForm() {
             if (y != null && m != null) {
               setImportDuplicateYearMonth(`${y}-${String(m).padStart(2, "0")}`);
             }
-            setImportError("Esiste già un planning per questo mese. Scegli un altro mese o rimuovi il piano esistente.");
+            setImportError(
+              "Esiste già un planning per questo mese. Spunta «Sovrascrivi se il piano…» per sostituirlo dal file, oppure scegli un altro mese.",
+            );
           } else {
             setImportError("error" in result ? result.error : "Import non riuscito");
           }
@@ -170,7 +177,6 @@ export function PlanningImportForm() {
             {isPending && !preview ? "Elaborazione…" : "Genera anteprima"}
           </Button>
         </div>
-      </form>
 
       {existingDbPlan ? (
         <div
@@ -178,8 +184,9 @@ export function PlanningImportForm() {
           role="status"
         >
           <p>
-            <span className="font-medium">Esiste già un planning in database per {existingDbPlan.label}.</span> L’import
-            andrebbe a creare un duplicato: cambia mese, elimina il piano, oppure apri il mese per modificarlo.
+            <span className="font-medium">Esiste già un planning in database per {existingDbPlan.label}.</span> Per
+            sostituirlo con questo file, in anteprima spunta l’opzione di sovrascrittura prima di «Importa in
+            produzione». In alternativa cambia mese o apri il mese per modificarlo a mano.
           </p>
           <p className="mt-2">
             <Link
@@ -292,6 +299,24 @@ export function PlanningImportForm() {
               <p className="text-xs text-muted-foreground">
                 Confermando, verrà creato un piano in bozza con tutte le voci. Nessun utente assegnato a questo step.
               </p>
+              <div className="mt-3 space-y-2 rounded-md border border-border bg-muted/30 px-3 py-2.5">
+                <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    name="overwrite"
+                    checked={overwrite}
+                    onChange={(e) => setOverwrite(e.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="font-medium">Sovrascrivi se il piano per questo mese esiste già</span>
+                    <span className="mt-0.5 block text-muted-foreground">
+                      Rimuove il piano attuale e tutte le righe turno collegate, poi reimporta dal file. Usare solo se il
+                      nuovo Excel deve sostituire del tutto il mese.
+                    </span>
+                  </span>
+                </label>
+              </div>
               {importError ? (
                 <div role="alert" className="mt-3 space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                   <p>{importError}</p>
@@ -319,6 +344,7 @@ export function PlanningImportForm() {
           </div>
         </Card>
       ) : null}
+      </form>
 
       <p className="text-sm text-muted-foreground">
         <Link href="/turni" className="text-primary underline-offset-2 hover:underline">

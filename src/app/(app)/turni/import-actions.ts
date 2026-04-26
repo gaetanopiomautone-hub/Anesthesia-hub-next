@@ -50,11 +50,14 @@ export async function importPlanningAction(
   if (!y.ok) return { ok: false, error: y.error, code: "FILE" };
   if (!m.ok) return { ok: false, error: m.error, code: "FILE" };
 
+  const overwrite = formData.get("overwrite") === "on";
+
   const buffer = await file.arrayBuffer();
   const result = await importMonthlyPlanning({
     year: y.n,
     month: m.n,
     fileBuffer: buffer,
+    overwrite,
   });
 
   if (result.ok) {

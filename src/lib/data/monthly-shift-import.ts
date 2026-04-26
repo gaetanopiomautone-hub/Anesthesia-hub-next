@@ -2,7 +2,6 @@ import { requireRole } from "@/lib/auth/get-current-user-profile";
 import { buildAllShiftItemsForImport } from "@/lib/import/planning-parser";
 import type { ShiftItemDraft } from "@/lib/import/planning-parser";
 import { getMonthlyShiftPlanByYearMonth } from "@/lib/data/monthly-shift-plans";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 import type { MonthlyShiftPlanRow } from "@/lib/domain/monthly-shifts";
 import { createClient } from "@supabase/supabase-js";
@@ -64,15 +63,16 @@ export async function importMonthlyPlanning(params: {
   year: number;
   month: number;
   fileBuffer: ArrayBuffer;
+  /** Se true: elimina piano + righe (cascade) e reimporta. Solo admin (server). */
+  overwrite?: boolean;
   extraHolidayYmds?: string[];
 }): Promise<ImportMonthlyPlanningResult> {
   const profile = await requireRole(["admin"]);
-  const { year, month, fileBuffer, extraHolidayYmds } = params;
+  const { year, month, fileBuffer, overwrite = false, extraHolidayYmds } = params;
 
-  const supabase = await createServerSupabaseClient();
   const supabaseAdmin = createServiceRoleSupabaseClient();
 
-  const { data: existing, error: existingErr } = await supabase
+  const { data: existing, error: existingErr } = await supabaseAdmin
     .from("monthly_shift_plans")
     .select("id")
     .eq("year", year)
@@ -82,11 +82,20 @@ export async function importMonthlyPlanning(params: {
     return { ok: false, error: existingErr.message, code: "DB" };
   }
   if (existing) {
-    return {
-      ok: false,
-      error: "Esiste già un piano per l’anno e il mese indicati.",
-      code: "ALREADY_EXISTS",
-    };
+    const existingId = String((existing as { id: string }).id);
+    if (overwrite) {
+      const { error: delErr } = await supabaseAdmin.from("monthly_shift_plans").delete().eq("id", existingId);
+      if (delErr) {
+        return { ok: false, error: delErr.message, code: "DB" };
+      }
+    } else {
+      return {
+        ok: false,
+        error:
+          "Esiste già un piano per l’anno e il mese indicati. Per sostituirlo, usa l’opzione di sovrascrittura nell’import.",
+        code: "ALREADY_EXISTS",
+      };
+    }
   }
 
   const { sala, all } = buildAllShiftItemsForImport(year, month, fileBuffer, { extraHolidayYmds });
@@ -103,7 +112,16 @@ export async function importMonthlyPlanning(params: {
     .single();
 
   if (insertPlanErr || !inserted) {
-    return { ok: false, error: insertPlanErr?.message ?? "Inserimento piano non riuscito", code: "DB" };
+    const msg = insertPlanErr?.message ?? "Inserimento piano non riuscito";
+    if (msg.toLowerCase().includes("duplicate key") || msg.includes("monthly_shift_plans_year_month_key")) {
+      return {
+        ok: false,
+        error:
+          "Esiste già un piano per questo mese. Se vuoi sostituirlo, abilita la sovrascrittura e riprova.",
+        code: "ALREADY_EXISTS",
+      };
+    }
+    return { ok: false, error: msg, code: "DB" };
   }
 
   const planId = String((inserted as { id: string }).id);
