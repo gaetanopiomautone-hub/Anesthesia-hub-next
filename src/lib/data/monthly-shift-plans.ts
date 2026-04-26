@@ -1,3 +1,5 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { MonthlyShiftPlanRow, ShiftItemRow } from "@/lib/domain/monthly-shifts";
 
@@ -37,8 +39,13 @@ function mapItem(raw: Record<string, unknown>): ShiftItemRow {
 }
 
 /** Piano per anno/mese, se esiste. */
-export async function getMonthlyShiftPlanByYearMonth(params: { year: number; month: number }): Promise<MonthlyShiftPlanRow | null> {
-  const supabase = await createServerSupabaseClient();
+export async function getMonthlyShiftPlanByYearMonth(params: {
+  year: number;
+  month: number;
+  /** Opzionale: usare ad es. service role in operazioni server-only (import batch). */
+  supabase?: SupabaseClient;
+}): Promise<MonthlyShiftPlanRow | null> {
+  const supabase = params.supabase ?? (await createServerSupabaseClient());
   const { data, error } = await supabase
     .from("monthly_shift_plans")
     .select("*")

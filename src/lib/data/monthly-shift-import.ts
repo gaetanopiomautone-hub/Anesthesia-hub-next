@@ -124,7 +124,7 @@ export async function importMonthlyPlanning(params: {
     }
   }
 
-  const plan = await getMonthlyShiftPlanByYearMonth({ year, month });
+  const plan = await getMonthlyShiftPlanByYearMonth({ year, month, supabase: supabaseAdmin });
   if (!plan) {
     return { ok: false, error: "Piano inserito ma non recuperabile.", code: "DB" };
   }
