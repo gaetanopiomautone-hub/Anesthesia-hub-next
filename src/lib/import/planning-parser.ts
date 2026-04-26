@@ -41,6 +41,21 @@ export const EXCLUDED_SPECIALTIES = [
   "cardiochirurgia", // dopo pediatrica per non spezzare il check più specifico
 ] as const;
 
+const ITALIAN_MONTHS: Record<string, number> = {
+  gennaio: 1,
+  febbraio: 2,
+  marzo: 3,
+  aprile: 4,
+  maggio: 5,
+  giugno: 6,
+  luglio: 7,
+  agosto: 8,
+  settembre: 9,
+  ottobre: 10,
+  novembre: 11,
+  dicembre: 12,
+};
+
 function normalizeText(s: string) {
   return s
     .toLowerCase()
@@ -55,6 +70,15 @@ export function isExcludedSpecialty(specialty: string | null | undefined): boole
   if (t.includes("oculist")) return true;
   if (t.includes("cardiochirurgia") && t.includes("pediatric")) return true;
   if (t.includes("cardiochirurgia")) return true;
+  if (t.includes("urgenz")) return true;
+  if (t.includes("tecnico") && (t.includes("rx") || t.replace(/\s/g, "").includes("rx"))) return true;
+  return false;
+}
+
+function isEmptyCellish(text: string): boolean {
+  const t = text.trim();
+  if (!t) return true;
+  if (/^[-–—_./\s]+$/u.test(t)) return true;
   return false;
 }
 
@@ -137,23 +161,275 @@ function mapPeriodToken(raw: string | undefined): PeriodToken {
   return "unknown";
 }
 
+const ITALIAN_HEADER_WITH_DAY = new RegExp(
+  `^(luned[iì]|marted[iì]|mercoled[iì]|gioved[iì]|venerd[iì]|sabato|domenica)` +
+    `\\s*,\\s*([a-zA-Z\u00C0-\u024F']+)\\s+(\\d{1,2})\\s*,?\\s*(\\d{4})\\s*$`,
+  "i",
+);
+
+function findItalianMonthId(normalizedMonth: string): number | null {
+  for (const [name, m] of Object.entries(ITALIAN_MONTHS)) {
+    if (normalizedMonth === name) return m;
+  }
+  for (const [name, m] of Object.entries(ITALIAN_MONTHS)) {
+    if (name.startsWith(normalizedMonth) || normalizedMonth.startsWith(name)) return m;
+  }
+  return null;
+}
+
 /**
- * Estrae righe sala da un foglio Excel: colonne flessibili (data, sala, reparto, [fascia]).
- * Ogni riga con data+sala valida e reparto non escluso genera 1 o 2 slot (mattina/pomeriggio) a seconda della colonna fascia.
+ * Riconosce header tipo "lunedì, maggio 04, 2026" o "maggio 4, 2026".
+ * Celle con solo Date() native restituisce la data in formato ymd.
  */
-export function parseSalaItemsFromExcelBuffer(
-  buffer: ArrayBuffer,
+function parseYmdFromBlockDayHeader(raw: string, cell: unknown, year: number, month: number): string | null {
+  if (cell instanceof Date && !Number.isNaN(cell.getTime())) {
+    const ymd = format(cell, "yyyy-MM-dd");
+    if (ymdInMonth(ymd, year, month)) return ymd;
+  }
+  const t = raw.trim();
+  if (!t) return null;
+  if (/^\d{4}-\d{2}-\d{2}/.test(t)) {
+    const ymd = t.slice(0, 10);
+    if (ymdInMonth(ymd, year, month)) return ymd;
+    return null;
+  }
+  const m1 = t.match(ITALIAN_HEADER_WITH_DAY);
+  if (m1) {
+    const monName = normalizeText(m1[2].replace(/'/g, ""));
+    const mo = findItalianMonthId(monName);
+    if (mo == null) return null;
+    const d = Number(m1[3]);
+    const y = Number(m1[4]);
+    const ymd = ymdOrNullFromParts(y, mo, d);
+    if (ymd && ymdInMonth(ymd, year, month)) return ymd;
+  }
+  const m2 = t.match(
+    /^(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(\d{1,2}),?\s*(\d{4})/i,
+  );
+  if (m2) {
+    const monName = normalizeText(m2[1].replace(/'/g, ""));
+    const mo = findItalianMonthId(monName);
+    if (mo == null) return null;
+    const d = Number(m2[2]);
+    const y = Number(m2[3]);
+    const ymd = ymdOrNullFromParts(y, mo, d);
+    if (ymd && ymdInMonth(ymd, year, month)) return ymd;
+  }
+  const fromGeneric = parseToYmd(t, year, month);
+  if (fromGeneric && ymdInMonth(fromGeneric, year, month)) return fromGeneric;
+  return null;
+}
+
+function ymdOrNullFromParts(y: number, mo: number, d: number): string | null {
+  if (d < 1 || d > 31 || mo < 1 || mo > 12) return null;
+  const date = new Date(y, mo - 1, d);
+  if (date.getFullYear() !== y || date.getMonth() !== mo - 1 || date.getDate() !== d) return null;
+  return format(date, "yyyy-MM-dd");
+}
+
+function cellToDisplayString(v: unknown): string {
+  if (v == null || v === "") return "";
+  if (v instanceof Date) {
+    if (Number.isNaN(v.getTime())) return "";
+    return String(v);
+  }
+  if (typeof v === "number") {
+    if (v > 30000 && v < 100000) {
+      const ms = (v - 25569) * 86400 * 1000;
+      const d = new Date(ms);
+      if (!Number.isNaN(d.getTime())) {
+        return format(d, "yyyy-MM-dd");
+      }
+    }
+  }
+  return String(v).trim();
+}
+
+function toRawMatrix(sheet: XLSX.WorkSheet): unknown[][] {
+  const rows = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: null, raw: true }) as unknown[][];
+  if (!rows.length) {
+    return [[]];
+  }
+  const maxC = Math.max(0, ...rows.map((r) => (Array.isArray(r) ? r.length : 0)));
+  return rows.map((row) => {
+    const a = (Array.isArray(row) ? row : []) as unknown[];
+    return Array.from({ length: maxC }, (_, c) => a[c] ?? null);
+  });
+}
+
+function isMattinaTimeLabel(s: string): boolean {
+  const t = normalizeText(s);
+  if (!s.trim()) return false;
+  if (t === "m" || t === "mattina" || t.includes("mattin")) return true;
+  if (/^8[.\s,:]*00?\s*[-–]\s*1[4]/.test(s.replace(/\s/g, "")) || t.includes("8-14") || t.includes("8–14")) return true;
+  if (t.includes("8") && t.includes("14") && t.includes("-") && t.length < 20) return true;
+  return false;
+}
+
+function isPomeriggioTimeLabel(s: string): boolean {
+  const t = normalizeText(s);
+  if (!s.trim()) return false;
+  if (t === "p" || t === "pomeriggio" || t.includes("pomer")) return true;
+  if (/1[4][.\s,:]*00?\s*[-–]\s*2[0]/.test(s.replace(/\s/g, "")) || t.includes("14-20") || t.includes("14–20")) return true;
+  if (t.includes("14") && t.includes("20") && t.includes("-") && t.length < 20) return true;
+  return false;
+}
+
+function isNoiseTableHeader(s: string): boolean {
+  const t = normalizeText(s);
+  if (!t) return true;
+  if (t.length <= 20 && (t === "reparto" || t === "branca" || t.startsWith("special") || t === "fascia")) {
+    return true;
+  }
+  return false;
+}
+
+function pickTimeColumn(m: string[][], t1: number, t2: number, cols: number): number {
+  for (let c0 = 0; c0 < cols; c0++) {
+    const a = m[t1]?.[c0] ?? "";
+    const b = m[t2]?.[c0] ?? "";
+    if (isMattinaTimeLabel(a) && isPomeriggioTimeLabel(b)) {
+      return c0;
+    }
+  }
+  return -1;
+}
+
+/** Colonna (stessa riga) del prossimo header giorno dopo `cAfter`, o `maxCol` se non c’è. */
+function findNextDayHeaderColInRow(
+  m: string[][],
+  raw: unknown[][],
+  r: number,
+  cAfter: number,
+  year: number,
+  month: number,
+  maxCol: number,
+): number {
+  for (let c2 = cAfter + 1; c2 < maxCol; c2++) {
+    const s = m[r]?.[c2] ?? "";
+    const cell = raw[r]?.[c2];
+    const ymd = parseYmdFromBlockDayHeader(s, cell, year, month);
+    if (ymd) {
+      return c2;
+    }
+  }
+  return maxCol;
+}
+
+type ParseBlockResult = {
+  items: ShiftItemDraft[];
+  skipped: number;
+  anyDayHeaderInTargetMonth: boolean;
+};
+
+/**
+ * Formato a blocchi: riga "lunedì, maggio 04, 2026", sotto riga con intestazioni colonna = specialità,
+ * poi righe 8-14 (Mattina) e 14-20 (Pomeriggio) con celle = sala/slot. Colonne escluse (es. oculistica) ignorate.
+ */
+function parseSalaFromWeekBlockMatrix(
+  raw: unknown[][],
+  year: number,
+  month: number,
+): ParseBlockResult {
+  const m = raw.map((row) => row.map((c) => cellToDisplayString(c)));
+  const rows = m.length;
+  const maxCol = m[0]?.length ?? 0;
+  const items: ShiftItemDraft[] = [];
+  const seen = new Set<string>();
+  let skipped = 0;
+  let anyDayHeaderInTargetMonth = false;
+
+  const pushSala = (
+    ymd: string,
+    period: ShiftItemPeriod,
+    start: string,
+    end: string,
+    room: string,
+    specialty: string,
+  ) => {
+    const key = `${ymd}|sala|${period}|${room}|${specialty}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    const label = period === "mattina" ? "Sala · Mattina" : "Sala · Pomeriggio";
+    items.push({
+      shift_date: ymd,
+      kind: "sala",
+      period,
+      start_time: start,
+      end_time: end,
+      label,
+      room_name: room,
+      specialty: specialty || null,
+      source: "excel",
+    });
+  };
+
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < maxCol; c++) {
+      const cell = raw[r]?.[c];
+      const s = m[r]?.[c] ?? "";
+      const ymd = parseYmdFromBlockDayHeader(s, cell, year, month);
+      if (!ymd || !ymdInMonth(ymd, year, month)) {
+        continue;
+      }
+      anyDayHeaderInTargetMonth = true;
+
+      const specR = r + 1;
+      const t1 = r + 2;
+      const t2r = r + 3;
+      if (t2r >= rows) {
+        skipped += 1;
+        continue;
+      }
+      const cols = Math.max(maxCol, m[specR]?.length ?? 0, m[t1]?.length ?? 0, m[t2r]?.length ?? 0);
+      const cBlockEnd = findNextDayHeaderColInRow(m, raw, r, c, year, month, cols);
+      const timeCol = pickTimeColumn(m, t1, t2r, cols);
+      if (timeCol < 0) {
+        skipped += 1;
+        continue;
+      }
+      for (let j = c; j < cBlockEnd; j++) {
+        if (j === timeCol) {
+          continue;
+        }
+        const header = m[specR]?.[j] ?? "";
+        if (isNoiseTableHeader(header)) {
+          continue;
+        }
+        if (isEmptyCellish(header) || isExcludedSpecialty(header)) {
+          continue;
+        }
+        const spec = header.trim();
+        const vMattina = m[t1]?.[j] ?? "";
+        const vPom = m[t2r]?.[j] ?? "";
+        if (isEmptyCellish(vMattina) && isEmptyCellish(vPom)) {
+          continue;
+        }
+        if (!isEmptyCellish(vMattina) && isExcludedSpecialty(vMattina)) {
+          skipped += 1;
+          continue;
+        }
+        if (!isEmptyCellish(vPom) && isExcludedSpecialty(vPom)) {
+          skipped += 1;
+          continue;
+        }
+        if (!isEmptyCellish(vMattina)) {
+          pushSala(ymd, "mattina", TIME_MATTINA_START, TIME_MATTINA_END, vMattina.trim(), spec);
+        }
+        if (!isEmptyCellish(vPom)) {
+          pushSala(ymd, "pomeriggio", TIME_POMERIGGIO_START, TIME_POMERIGGIO_END, vPom.trim(), spec);
+        }
+      }
+    }
+  }
+  return { items, skipped, anyDayHeaderInTargetMonth };
+}
+
+function parseSalaFromLegacyJsonRows(
+  jsonRows: Record<string, unknown>[],
   year: number,
   month: number,
 ): { items: ShiftItemDraft[]; skippedRows: number; parsedRows: number } {
-  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-  const name = workbook.SheetNames[0];
-  if (!name) {
-    return { items: [], skippedRows: 0, parsedRows: 0 };
-  }
-  const sheet = workbook.Sheets[name];
-  const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: false });
-
   const items: ShiftItemDraft[] = [];
   const seen = new Set<string>();
   let skippedRows = 0;
@@ -221,6 +497,37 @@ export function parseSalaItemsFromExcelBuffer(
   }
 
   return { items, skippedRows, parsedRows };
+}
+
+/**
+ * Estrae turni in sala: formato a **blocchi** (header giorno italiano, righe 8-14 / 14-20, colonne = specialità).
+ * Se in foglio compaiono header giorno nel mese/anno scelti, si usa **solo** quel formato (no ritorno al modello a righe "flat").
+ * Altrimenti: compatibilità con vecchio Excel tabellare (data, sala, reparto, fascia).
+ */
+export function parseSalaItemsFromExcelBuffer(
+  buffer: ArrayBuffer,
+  year: number,
+  month: number,
+): { items: ShiftItemDraft[]; skippedRows: number; parsedRows: number } {
+  const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
+  const name = workbook.SheetNames[0];
+  if (!name) {
+    return { items: [], skippedRows: 0, parsedRows: 0 };
+  }
+  const sheet = workbook.Sheets[name];
+  const matrix = toRawMatrix(sheet);
+  const block = parseSalaFromWeekBlockMatrix(matrix, year, month);
+
+  if (block.anyDayHeaderInTargetMonth) {
+    return {
+      items: block.items,
+      skippedRows: block.skipped,
+      parsedRows: block.items.length,
+    };
+  }
+
+  const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: false });
+  return parseSalaFromLegacyJsonRows(jsonRows, year, month);
 }
 
 /** Esegue l’import completo in memoria: sale da Excel + ambulatorio (lun–ven) + reperibilità. */
