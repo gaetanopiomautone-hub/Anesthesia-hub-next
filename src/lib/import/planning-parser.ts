@@ -357,6 +357,12 @@ type ParseBlockResult = {
   anyDayHeaderInTargetMonth: boolean;
 };
 
+type ParseRowBasedResult = {
+  items: ShiftItemDraft[];
+  skipped: number;
+  rowLayoutDetected: boolean;
+};
+
 /**
  * Formato a blocchi: riga "lunedì, maggio 04, 2026", sotto riga con intestazioni colonna = specialità,
  * poi righe 8-14 (Mattina) e 14-20 (Pomeriggio) con celle = sala/slot. Colonne escluse (es. oculistica) ignorate.
@@ -463,6 +469,86 @@ function parseSalaFromWeekBlockMatrix(
   return { items, skipped, anyDayHeaderInTargetMonth };
 }
 
+function parsePeriodFromTimeCell(raw: string): ShiftItemPeriod | null {
+  if (isMattinaTimeLabel(raw)) return "mattina";
+  if (isPomeriggioTimeLabel(raw)) return "pomeriggio";
+  return null;
+}
+
+function isSalaRowId(raw: string): boolean {
+  const t = raw.trim();
+  if (!t) return false;
+  if (/^\d{1,2}$/.test(t)) return true;
+  if (normalizeText(t).startsWith("sala")) return true;
+  return false;
+}
+
+function parseSalaFromRowLayoutMatrix(raw: unknown[][], year: number, month: number): ParseRowBasedResult {
+  const m = raw.map((row) => row.map((c) => cellToDisplayString(c)));
+  const maxCol = Math.max(0, ...m.map((r) => r.length));
+  const items: ShiftItemDraft[] = [];
+  const seen = new Set<string>();
+  let skipped = 0;
+  let rowLayoutDetected = false;
+
+  const dayColumns: { col: number; ymd: string }[] = [];
+  for (let c = 2; c < maxCol; c++) {
+    let ymd: string | null = null;
+    let hasTechHint = false;
+    for (let r = 0; r < Math.min(m.length, 12); r++) {
+      const txt = m[r]?.[c] ?? "";
+      if (isExcludedSpecialty(txt) || normalizeText(txt).includes("tecnico")) {
+        hasTechHint = true;
+      }
+      const maybe = parseYmdFromBlockDayHeader(txt, raw[r]?.[c], year, month);
+      if (maybe) {
+        ymd = maybe;
+        break;
+      }
+    }
+    if (!ymd || hasTechHint) continue;
+    dayColumns.push({ col: c, ymd });
+  }
+
+  if (!dayColumns.length) {
+    return { items: [], skipped: 0, rowLayoutDetected: false };
+  }
+
+  for (let r = 0; r < m.length; r++) {
+    const salaRaw = m[r]?.[0] ?? "";
+    const timeRaw = m[r]?.[1] ?? "";
+    const period = parsePeriodFromTimeCell(timeRaw);
+    if (!isSalaRowId(salaRaw) || !period) continue;
+    rowLayoutDetected = true;
+
+    for (const { col, ymd } of dayColumns) {
+      const value = (m[r]?.[col] ?? "").trim();
+      if (isEmptyCellish(value)) continue;
+      if (isExcludedSpecialty(value) || isAmbulatorioLike(value) || isReperibilitaLike(value)) {
+        skipped += 1;
+        continue;
+      }
+      const room = normalizeText(salaRaw).startsWith("sala") ? salaRaw.trim() : `Sala ${salaRaw.trim()}`;
+      const key = `${ymd}|sala|${period}|${room}|${value}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push({
+        shift_date: ymd,
+        kind: "sala",
+        period,
+        start_time: period === "mattina" ? TIME_MATTINA_START : TIME_POMERIGGIO_START,
+        end_time: period === "mattina" ? TIME_MATTINA_END : TIME_POMERIGGIO_END,
+        label: period === "mattina" ? "Sala · Mattina" : "Sala · Pomeriggio",
+        room_name: room,
+        specialty: value,
+        source: "excel",
+      });
+    }
+  }
+
+  return { items, skipped, rowLayoutDetected };
+}
+
 function parseSalaFromLegacyJsonRows(
   jsonRows: Record<string, unknown>[],
   year: number,
@@ -554,6 +640,14 @@ export function parseSalaItemsFromExcelBuffer(
   }
   const sheet = workbook.Sheets[name];
   const matrix = toRawMatrix(sheet);
+  const rowBased = parseSalaFromRowLayoutMatrix(matrix, year, month);
+  if (rowBased.rowLayoutDetected) {
+    return {
+      items: rowBased.items,
+      skippedRows: rowBased.skipped,
+      parsedRows: rowBased.items.length,
+    };
+  }
   const block = parseSalaFromWeekBlockMatrix(matrix, year, month);
 
   if (block.anyDayHeaderInTargetMonth) {
