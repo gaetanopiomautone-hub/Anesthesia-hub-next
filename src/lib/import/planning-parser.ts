@@ -501,6 +501,39 @@ function weekdayIsoFromText(raw: string): number | null {
   return null;
 }
 
+function collectWeekdayColumnHints(
+  m: string[][],
+  maxCol: number,
+): { col: number; iso: number; ymdHint: string | null; isTech: boolean }[] {
+  const out: { col: number; iso: number; ymdHint: string | null; isTech: boolean }[] = [];
+  for (let c = 2; c < maxCol; c++) {
+    let iso: number | null = null;
+    let ymdHint: string | null = null;
+    let isTech = false;
+    for (let r = 0; r < Math.min(m.length, 20); r++) {
+      const txt = m[r]?.[c] ?? "";
+      const n = normalizeText(txt);
+      if (!n) continue;
+      if (n.includes("tecnico")) {
+        isTech = true;
+      }
+      if (iso == null) {
+        iso = weekdayIsoFromText(txt);
+      }
+      if (!ymdHint) {
+        const mDate = txt.match(/\b(\d{4})-(\d{2})-(\d{2})\b/);
+        if (mDate) {
+          ymdHint = `${mDate[1]}-${mDate[2]}-${mDate[3]}`;
+        }
+      }
+    }
+    if (iso != null) {
+      out.push({ col: c, iso, ymdHint, isTech });
+    }
+  }
+  return out;
+}
+
 function parseSalaFromRowLayoutMatrix(raw: unknown[][], year: number, month: number): ParseRowBasedResult {
   const m = raw.map((row) => row.map((c) => cellToDisplayString(c)));
   const maxCol = Math.max(0, ...m.map((r) => r.length));
@@ -510,63 +543,38 @@ function parseSalaFromRowLayoutMatrix(raw: unknown[][], year: number, month: num
   let rowLayoutDetected = false;
 
   const dayColumns: { col: number; ymd: string }[] = [];
-  const weekdayCols: { col: number; iso: number }[] = [];
-  for (let c = 2; c < maxCol; c++) {
+  const weekdayHints = collectWeekdayColumnHints(m, maxCol).filter((h) => !h.isTech);
+  const monthDatesByIso: Record<number, string[]> = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] };
+  const start = startOfMonth(new Date(year, month - 1, 1));
+  const end = endOfMonth(start);
+  for (const d of eachDayOfInterval({ start, end })) {
+    monthDatesByIso[getISODay(d)].push(format(d, "yyyy-MM-dd"));
+  }
+
+  // 1) prefer explicit ymd parsed from header cells in that column
+  for (const h of weekdayHints) {
     let ymd: string | null = null;
-    let hasTechHint = false;
-    let weekdayIso: number | null = null;
-    for (let r = 0; r < Math.min(m.length, 12); r++) {
-      const txt = m[r]?.[c] ?? "";
-      if (isExcludedSpecialty(txt) || normalizeText(txt).includes("tecnico")) {
-        hasTechHint = true;
-      }
-      if (weekdayIso == null) {
-        weekdayIso = weekdayIsoFromText(txt);
-      }
-      const maybe = parseYmdFromBlockDayHeader(txt, raw[r]?.[c], year, month);
+    for (let r = 0; r < Math.min(m.length, 20); r++) {
+      const txt = m[r]?.[h.col] ?? "";
+      const maybe = parseYmdFromBlockDayHeader(txt, raw[r]?.[h.col], year, month);
       if (maybe) {
         ymd = maybe;
         break;
       }
     }
-    if (!ymd || hasTechHint) continue;
-    dayColumns.push({ col: c, ymd });
+    if (ymd) {
+      dayColumns.push({ col: h.col, ymd });
+    }
   }
 
   if (!dayColumns.length) {
-    // Fallback: file con header solo "lunedì/martedì/..." senza data esplicita.
-    const byIso: Record<number, string[]> = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] };
-    const start = startOfMonth(new Date(year, month - 1, 1));
-    const end = endOfMonth(start);
-    for (const d of eachDayOfInterval({ start, end })) {
-      const iso = getISODay(d);
-      byIso[iso].push(format(d, "yyyy-MM-dd"));
-    }
-
-    for (let c = 2; c < maxCol; c++) {
-      let hasTechHint = false;
-      let weekdayIso: number | null = null;
-      for (let r = 0; r < Math.min(m.length, 12); r++) {
-        const txt = m[r]?.[c] ?? "";
-        const n = normalizeText(txt);
-        if (n.includes("tecnico")) {
-          hasTechHint = true;
-          break;
-        }
-        if (weekdayIso == null) {
-          weekdayIso = weekdayIsoFromText(txt);
-        }
-      }
-      if (hasTechHint || weekdayIso == null) continue;
-      weekdayCols.push({ col: c, iso: weekdayIso });
-    }
-
-    for (const wc of weekdayCols) {
-      const q = byIso[wc.iso];
+    // 2) fallback: solo weekday header (lunedì/martedì/...) mappato in sequenza sul mese.
+    for (const h of weekdayHints) {
+      const q = monthDatesByIso[h.iso];
       if (!q?.length) continue;
       const ymd = q.shift();
       if (!ymd) continue;
-      dayColumns.push({ col: wc.col, ymd });
+      dayColumns.push({ col: h.col, ymd });
     }
   }
 
@@ -591,6 +599,7 @@ function parseSalaFromRowLayoutMatrix(raw: unknown[][], year: number, month: num
     for (const { col, ymd } of dayColumns) {
       const value = (m[r]?.[col] ?? "").trim();
       if (isEmptyCellish(value)) continue;
+      if (normalizeText(value).includes("tecnico")) continue;
       if (isExcludedSpecialty(value) || isAmbulatorioLike(value) || isReperibilitaLike(value)) {
         skipped += 1;
         continue;
