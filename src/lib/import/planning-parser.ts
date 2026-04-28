@@ -534,6 +534,16 @@ function collectWeekdayColumnHints(
   return out;
 }
 
+function normalizeBlockLabel(raw: string): string | null {
+  const t = raw.trim();
+  if (!t) return null;
+  const n = normalizeText(t);
+  if (!n.includes("b.o") && !n.includes("bo") && !(n.includes("blocco") && n.includes("operator"))) {
+    return null;
+  }
+  return t.replace(/\s+/g, " ");
+}
+
 function parseSalaFromRowLayoutMatrix(raw: unknown[][], year: number, month: number): ParseRowBasedResult {
   const m = raw.map((row) => row.map((c) => cellToDisplayString(c)));
   const maxCol = Math.max(0, ...m.map((r) => r.length));
@@ -589,7 +599,17 @@ function parseSalaFromRowLayoutMatrix(raw: unknown[][], year: number, month: num
     return { items: [], skipped: 0, rowLayoutDetected };
   }
 
+  let currentBlock: string | null = null;
   for (let r = 0; r < m.length; r++) {
+    const blockCandidate =
+      normalizeBlockLabel(m[r]?.[0] ?? "") ??
+      normalizeBlockLabel(m[r]?.[1] ?? "") ??
+      normalizeBlockLabel(m[r]?.[2] ?? "");
+    if (blockCandidate) {
+      currentBlock = blockCandidate;
+      continue;
+    }
+
     const salaRaw = m[r]?.[0] ?? "";
     const timeRaw = m[r]?.[1] ?? "";
     const period = parsePeriodFromTimeCell(timeRaw);
@@ -604,7 +624,8 @@ function parseSalaFromRowLayoutMatrix(raw: unknown[][], year: number, month: num
         skipped += 1;
         continue;
       }
-      const room = normalizeText(salaRaw).startsWith("sala") ? salaRaw.trim() : `Sala ${salaRaw.trim()}`;
+      const baseRoom = normalizeText(salaRaw).startsWith("sala") ? salaRaw.trim() : `Sala ${salaRaw.trim()}`;
+      const room = currentBlock ? `${baseRoom} - ${currentBlock}` : baseRoom;
       const key = `${ymd}|sala|${period}|${room}|${value}`;
       if (seen.has(key)) continue;
       seen.add(key);
