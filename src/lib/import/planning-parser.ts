@@ -592,6 +592,28 @@ function inferDateWindowFromSheetName(
   return { start, end };
 }
 
+function sheetNameContainsMonthToken(sheetName: string, month: number): boolean {
+  const normalized = normalizeText(sheetName).replace(/\./g, " ");
+  for (const [name, m] of Object.entries(ITALIAN_MONTHS)) {
+    if (m === month && normalized.includes(name)) return true;
+  }
+  for (const [name, m] of Object.entries(ITALIAN_MONTH_ALIASES)) {
+    if (m === month && normalized.includes(name)) return true;
+  }
+  return false;
+}
+
+function shouldParseSheetForMonth(sheetName: string, year: number, month: number): boolean {
+  const window = inferDateWindowFromSheetName(sheetName, year, month);
+  if (window) {
+    const startOk = window.start.getFullYear() === year && window.start.getMonth() + 1 === month;
+    const endOk = window.end.getFullYear() === year && window.end.getMonth() + 1 === month;
+    return startOk || endOk;
+  }
+  // Se non riusciamo a inferire un range date, accettiamo solo fogli che citano il mese scelto.
+  return sheetNameContainsMonthToken(sheetName, month);
+}
+
 function normalizeBlockLabel(raw: string): string | null {
   const t = raw.trim();
   if (!t) return null;
@@ -846,6 +868,9 @@ export function parseSalaItemsFromExcelBuffer(
   let parsedRows = 0;
 
   for (const sheetName of workbook.SheetNames) {
+    if (!shouldParseSheetForMonth(sheetName, year, month)) {
+      continue;
+    }
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) continue;
 
