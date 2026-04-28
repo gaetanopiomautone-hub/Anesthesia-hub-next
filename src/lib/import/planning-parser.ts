@@ -251,10 +251,27 @@ function toRawMatrix(sheet: XLSX.WorkSheet): unknown[][] {
     return [[]];
   }
   const maxC = Math.max(0, ...rows.map((r) => (Array.isArray(r) ? r.length : 0)));
-  return rows.map((row) => {
+  const matrix = rows.map((row) => {
     const a = (Array.isArray(row) ? row : []) as unknown[];
     return Array.from({ length: maxC }, (_, c) => a[c] ?? null);
   });
+  const merges = (sheet["!merges"] ?? []) as XLSX.Range[];
+  for (const merge of merges) {
+    const startRow = merge.s.r;
+    const endRow = merge.e.r;
+    const startCol = merge.s.c;
+    const endCol = merge.e.c;
+    const topLeft = matrix[startRow]?.[startCol] ?? null;
+    if (topLeft == null || topLeft === "") continue;
+    for (let r = startRow; r <= endRow; r++) {
+      for (let c = startCol; c <= endCol; c++) {
+        if ((matrix[r]?.[c] ?? null) == null || matrix[r]?.[c] === "") {
+          matrix[r][c] = topLeft;
+        }
+      }
+    }
+  }
+  return matrix;
 }
 
 function isMattinaTimeLabel(s: string): boolean {
