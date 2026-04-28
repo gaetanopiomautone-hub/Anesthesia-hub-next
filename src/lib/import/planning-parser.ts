@@ -613,6 +613,23 @@ function canonicalSalaSlotKeyParts(ymd: string, period: string, roomName: string
   return `${ymd}|${period}|${room}`;
 }
 
+function parseYmdFromHeaderLoose(raw: string, year: number, month: number): string | null {
+  const t = raw.trim();
+  if (!t) return null;
+  const strict = parseToYmd(t, year, month);
+  if (strict && ymdInMonth(strict, year, month)) return strict;
+
+  // Numbers/Excel spesso spezza l'header: "lunedì", "maggio 04", oppure solo "04".
+  const dayMatch = t.match(/\b(\d{1,2})\b/);
+  if (!dayMatch) return null;
+  const day = Number(dayMatch[1]);
+  if (!Number.isFinite(day) || day < 1 || day > 31) return null;
+  const ymd = ymdOrNullFromParts(year, month, day);
+  if (!ymd) return null;
+  if (!ymdInMonth(ymd, year, month)) return null;
+  return ymd;
+}
+
 function parseSalaFromRowLayoutMatrix(
   raw: unknown[][],
   year: number,
@@ -645,6 +662,11 @@ function parseSalaFromRowLayoutMatrix(
       const maybe = parseYmdFromBlockDayHeader(txt, raw[r]?.[h.col], year, month);
       if (maybe) {
         ymd = maybe;
+        break;
+      }
+      const loose = parseYmdFromHeaderLoose(txt, year, month);
+      if (loose) {
+        ymd = loose;
         break;
       }
     }
