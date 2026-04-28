@@ -301,6 +301,24 @@ function isNoiseTableHeader(s: string): boolean {
   return false;
 }
 
+function isAmbulatorioLike(value: string): boolean {
+  const t = normalizeText(value);
+  return t.includes("ambulator");
+}
+
+function isReperibilitaLike(value: string): boolean {
+  const t = normalizeText(value);
+  return t.includes("reperibil");
+}
+
+function isExplicitNonSalaColumn(header: string): boolean {
+  if (!header.trim()) return false;
+  if (isExcludedSpecialty(header)) return true;
+  if (isAmbulatorioLike(header)) return true;
+  if (isReperibilitaLike(header)) return true;
+  return false;
+}
+
 function pickTimeColumn(m: string[][], t1: number, t2: number, cols: number): number {
   for (let c0 = 0; c0 < cols; c0++) {
     const a = m[t1]?.[c0] ?? "";
@@ -410,18 +428,20 @@ function parseSalaFromWeekBlockMatrix(
           continue;
         }
         const header = m[specR]?.[j] ?? "";
+        const vMattina = m[t1]?.[j] ?? "";
+        const vPom = m[t2r]?.[j] ?? "";
+        const hasAnySlotValue = !isEmptyCellish(vMattina) || !isEmptyCellish(vPom);
+        if (!hasAnySlotValue) {
+          continue;
+        }
         if (isNoiseTableHeader(header)) {
           continue;
         }
-        if (isEmptyCellish(header) || isExcludedSpecialty(header)) {
+        if (isExplicitNonSalaColumn(header)) {
           continue;
         }
-        const spec = header.trim();
-        const vMattina = m[t1]?.[j] ?? "";
-        const vPom = m[t2r]?.[j] ?? "";
-        if (isEmptyCellish(vMattina) && isEmptyCellish(vPom)) {
-          continue;
-        }
+        if (isAmbulatorioLike(vMattina) || isAmbulatorioLike(vPom)) continue;
+        if (isReperibilitaLike(vMattina) || isReperibilitaLike(vPom)) continue;
         if (!isEmptyCellish(vMattina) && isExcludedSpecialty(vMattina)) {
           skipped += 1;
           continue;
@@ -430,6 +450,7 @@ function parseSalaFromWeekBlockMatrix(
           skipped += 1;
           continue;
         }
+        const spec = isEmptyCellish(header) ? "Sala" : header.trim();
         if (!isEmptyCellish(vMattina)) {
           pushSala(ymd, "mattina", TIME_MATTINA_START, TIME_MATTINA_END, vMattina.trim(), spec);
         }
