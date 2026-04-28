@@ -592,28 +592,6 @@ function inferDateWindowFromSheetName(
   return { start, end };
 }
 
-function sheetNameContainsMonthToken(sheetName: string, month: number): boolean {
-  const normalized = normalizeText(sheetName).replace(/\./g, " ");
-  for (const [name, m] of Object.entries(ITALIAN_MONTHS)) {
-    if (m === month && normalized.includes(name)) return true;
-  }
-  for (const [name, m] of Object.entries(ITALIAN_MONTH_ALIASES)) {
-    if (m === month && normalized.includes(name)) return true;
-  }
-  return false;
-}
-
-function shouldParseSheetForMonth(sheetName: string, year: number, month: number): boolean {
-  const window = inferDateWindowFromSheetName(sheetName, year, month);
-  if (window) {
-    const startOk = window.start.getFullYear() === year && window.start.getMonth() + 1 === month;
-    const endOk = window.end.getFullYear() === year && window.end.getMonth() + 1 === month;
-    return startOk || endOk;
-  }
-  // Se non riusciamo a inferire un range date, accettiamo solo fogli che citano il mese scelto.
-  return sheetNameContainsMonthToken(sheetName, month);
-}
-
 function normalizeBlockLabel(raw: string): string | null {
   const t = raw.trim();
   if (!t) return null;
@@ -669,6 +647,12 @@ function parseSalaFromRowLayoutMatrix(
   const weekdayHints = collectWeekdayColumnHints(m, maxCol).filter((h) => !h.isTech);
   const monthDatesByIso: Record<number, string[]> = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] };
   const inferredWindow = sheetName ? inferDateWindowFromSheetName(sheetName, year, month) : null;
+  const inferredWindowIsOutsideSelectedMonth =
+    inferredWindow != null &&
+    (inferredWindow.start.getFullYear() !== year ||
+      inferredWindow.end.getFullYear() !== year ||
+      (inferredWindow.start.getMonth() + 1 !== month && inferredWindow.end.getMonth() + 1 !== month));
+  const allowLooseHeaderFallback = !inferredWindowIsOutsideSelectedMonth;
   const start = inferredWindow?.start ?? startOfMonth(new Date(year, month - 1, 1));
   const end = inferredWindow?.end ?? endOfMonth(startOfMonth(new Date(year, month - 1, 1)));
   for (const d of eachDayOfInterval({ start, end })) {
@@ -686,10 +670,12 @@ function parseSalaFromRowLayoutMatrix(
         ymd = maybe;
         break;
       }
-      const loose = parseYmdFromHeaderLoose(txt, year, month);
-      if (loose) {
-        ymd = loose;
-        break;
+      if (allowLooseHeaderFallback) {
+        const loose = parseYmdFromHeaderLoose(txt, year, month);
+        if (loose) {
+          ymd = loose;
+          break;
+        }
       }
     }
     if (ymd) {
@@ -868,9 +854,6 @@ export function parseSalaItemsFromExcelBuffer(
   let parsedRows = 0;
 
   for (const sheetName of workbook.SheetNames) {
-    if (!shouldParseSheetForMonth(sheetName, year, month)) {
-      continue;
-    }
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) continue;
 
@@ -878,6 +861,7 @@ export function parseSalaItemsFromExcelBuffer(
     const rowBased = parseSalaFromRowLayoutMatrix(matrix, year, month, sheetName);
     if (rowBased.rowLayoutDetected) {
       for (const item of rowBased.items) {
+        if (!ymdInMonth(item.shift_date, year, month)) continue;
         const key = canonicalSalaSlotKeyParts(item.shift_date, item.period, item.room_name);
         if (globalSeen.has(key)) continue;
         globalSeen.add(key);
@@ -891,6 +875,7 @@ export function parseSalaItemsFromExcelBuffer(
     const block = parseSalaFromWeekBlockMatrix(matrix, year, month);
     if (block.anyDayHeaderInTargetMonth) {
       for (const item of block.items) {
+        if (!ymdInMonth(item.shift_date, year, month)) continue;
         const key = canonicalSalaSlotKeyParts(item.shift_date, item.period, item.room_name);
         if (globalSeen.has(key)) continue;
         globalSeen.add(key);
@@ -904,6 +889,7 @@ export function parseSalaItemsFromExcelBuffer(
     const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: false });
     const legacy = parseSalaFromLegacyJsonRows(jsonRows, year, month);
     for (const item of legacy.items) {
+      if (!ymdInMonth(item.shift_date, year, month)) continue;
       const key = canonicalSalaSlotKeyParts(item.shift_date, item.period, item.room_name);
       if (globalSeen.has(key)) continue;
       globalSeen.add(key);
