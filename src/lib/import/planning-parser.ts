@@ -470,8 +470,9 @@ function parseSalaFromWeekBlockMatrix(
 }
 
 function parsePeriodFromTimeCell(raw: string): ShiftItemPeriod | null {
-  if (isMattinaTimeLabel(raw)) return "mattina";
-  if (isPomeriggioTimeLabel(raw)) return "pomeriggio";
+  const n = normalizeTimeRange(raw);
+  if (n.includes("8-14") || n.includes("08-14") || isMattinaTimeLabel(raw)) return "mattina";
+  if (n.includes("14-20") || isPomeriggioTimeLabel(raw)) return "pomeriggio";
   return null;
 }
 
@@ -483,6 +484,23 @@ function isSalaRowId(raw: string): boolean {
   return false;
 }
 
+function normalizeTimeRange(raw: string): string {
+  return normalizeText(raw).replace(/[–—−]/g, "-").replace(/\s+/g, "");
+}
+
+function weekdayIsoFromText(raw: string): number | null {
+  const t = normalizeText(raw);
+  if (!t) return null;
+  if (t.includes("lun")) return 1;
+  if (t.includes("mar")) return 2;
+  if (t.includes("mer")) return 3;
+  if (t.includes("gio")) return 4;
+  if (t.includes("ven")) return 5;
+  if (t.includes("sab")) return 6;
+  if (t.includes("dom")) return 7;
+  return null;
+}
+
 function parseSalaFromRowLayoutMatrix(raw: unknown[][], year: number, month: number): ParseRowBasedResult {
   const m = raw.map((row) => row.map((c) => cellToDisplayString(c)));
   const maxCol = Math.max(0, ...m.map((r) => r.length));
@@ -492,13 +510,18 @@ function parseSalaFromRowLayoutMatrix(raw: unknown[][], year: number, month: num
   let rowLayoutDetected = false;
 
   const dayColumns: { col: number; ymd: string }[] = [];
+  const weekdayCols: { col: number; iso: number }[] = [];
   for (let c = 2; c < maxCol; c++) {
     let ymd: string | null = null;
     let hasTechHint = false;
+    let weekdayIso: number | null = null;
     for (let r = 0; r < Math.min(m.length, 12); r++) {
       const txt = m[r]?.[c] ?? "";
       if (isExcludedSpecialty(txt) || normalizeText(txt).includes("tecnico")) {
         hasTechHint = true;
+      }
+      if (weekdayIso == null) {
+        weekdayIso = weekdayIsoFromText(txt);
       }
       const maybe = parseYmdFromBlockDayHeader(txt, raw[r]?.[c], year, month);
       if (maybe) {
@@ -511,7 +534,51 @@ function parseSalaFromRowLayoutMatrix(raw: unknown[][], year: number, month: num
   }
 
   if (!dayColumns.length) {
-    return { items: [], skipped: 0, rowLayoutDetected: false };
+    // Fallback: file con header solo "lunedì/martedì/..." senza data esplicita.
+    const byIso: Record<number, string[]> = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] };
+    const start = startOfMonth(new Date(year, month - 1, 1));
+    const end = endOfMonth(start);
+    for (const d of eachDayOfInterval({ start, end })) {
+      const iso = getISODay(d);
+      byIso[iso].push(format(d, "yyyy-MM-dd"));
+    }
+
+    for (let c = 2; c < maxCol; c++) {
+      let hasTechHint = false;
+      let weekdayIso: number | null = null;
+      for (let r = 0; r < Math.min(m.length, 12); r++) {
+        const txt = m[r]?.[c] ?? "";
+        const n = normalizeText(txt);
+        if (n.includes("tecnico")) {
+          hasTechHint = true;
+          break;
+        }
+        if (weekdayIso == null) {
+          weekdayIso = weekdayIsoFromText(txt);
+        }
+      }
+      if (hasTechHint || weekdayIso == null) continue;
+      weekdayCols.push({ col: c, iso: weekdayIso });
+    }
+
+    for (const wc of weekdayCols) {
+      const q = byIso[wc.iso];
+      if (!q?.length) continue;
+      const ymd = q.shift();
+      if (!ymd) continue;
+      dayColumns.push({ col: wc.col, ymd });
+    }
+  }
+
+  if (!dayColumns.length) {
+    // detection row-based: almeno sala + orario presente, anche se giorni non mappati.
+    for (let r = 0; r < m.length; r++) {
+      if (isSalaRowId(m[r]?.[0] ?? "") && parsePeriodFromTimeCell(m[r]?.[1] ?? "")) {
+        rowLayoutDetected = true;
+        break;
+      }
+    }
+    return { items: [], skipped: 0, rowLayoutDetected };
   }
 
   for (let r = 0; r < m.length; r++) {
