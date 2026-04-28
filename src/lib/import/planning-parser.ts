@@ -608,6 +608,11 @@ function canonicalSalaKeyParts(ymd: string, period: string, roomName: string | n
   return `${ymd}|${period}|${room}|${spec}`;
 }
 
+function canonicalSalaSlotKeyParts(ymd: string, period: string, roomName: string | null): string {
+  const room = normalizeText((roomName ?? "").replace(/\s+/g, " "));
+  return `${ymd}|${period}|${room}`;
+}
+
 function parseSalaFromRowLayoutMatrix(
   raw: unknown[][],
   year: number,
@@ -648,28 +653,8 @@ function parseSalaFromRowLayoutMatrix(
     }
   }
 
-  // 2) fallback/integrazione: completa le colonne weekday non mappate da date esplicite.
-  {
-    const usedCols = new Set(dayColumns.map((d) => d.col));
-    const usedDates = new Set(dayColumns.map((d) => d.ymd));
-    for (const h of weekdayHints) {
-      if (usedCols.has(h.col)) continue;
-      const q = monthDatesByIso[h.iso];
-      if (!q?.length) continue;
-      let ymd: string | undefined;
-      while (q.length > 0) {
-        const candidate = q.shift();
-        if (!candidate) break;
-        if (usedDates.has(candidate)) continue;
-        ymd = candidate;
-        break;
-      }
-      if (!ymd) continue;
-      dayColumns.push({ col: h.col, ymd });
-      usedCols.add(h.col);
-      usedDates.add(ymd);
-    }
-  }
+  // Strict mode: usa SOLO date esplicite in header colonna.
+  // Niente fallback weekday -> evita buchi/misallineamenti da offset.
 
   if (!dayColumns.length) {
     // detection row-based: almeno sala + orario presente, anche se giorni non mappati.
@@ -724,7 +709,7 @@ function parseSalaFromRowLayoutMatrix(
         continue;
       }
       const room = currentBlock ? `${baseRoom} - ${currentBlock}` : baseRoom;
-      const key = canonicalSalaKeyParts(ymd, period, room, value);
+      const key = canonicalSalaSlotKeyParts(ymd, period, room);
       if (seen.has(key)) continue;
       seen.add(key);
       items.push({
@@ -846,7 +831,7 @@ export function parseSalaItemsFromExcelBuffer(
     const rowBased = parseSalaFromRowLayoutMatrix(matrix, year, month, sheetName);
     if (rowBased.rowLayoutDetected) {
       for (const item of rowBased.items) {
-        const key = canonicalSalaKeyParts(item.shift_date, item.period, item.room_name, item.specialty);
+        const key = canonicalSalaSlotKeyParts(item.shift_date, item.period, item.room_name);
         if (globalSeen.has(key)) continue;
         globalSeen.add(key);
         allItems.push(item);
@@ -859,7 +844,7 @@ export function parseSalaItemsFromExcelBuffer(
     const block = parseSalaFromWeekBlockMatrix(matrix, year, month);
     if (block.anyDayHeaderInTargetMonth) {
       for (const item of block.items) {
-        const key = canonicalSalaKeyParts(item.shift_date, item.period, item.room_name, item.specialty);
+        const key = canonicalSalaSlotKeyParts(item.shift_date, item.period, item.room_name);
         if (globalSeen.has(key)) continue;
         globalSeen.add(key);
         allItems.push(item);
@@ -872,7 +857,7 @@ export function parseSalaItemsFromExcelBuffer(
     const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: false });
     const legacy = parseSalaFromLegacyJsonRows(jsonRows, year, month);
     for (const item of legacy.items) {
-      const key = canonicalSalaKeyParts(item.shift_date, item.period, item.room_name, item.specialty);
+      const key = canonicalSalaSlotKeyParts(item.shift_date, item.period, item.room_name);
       if (globalSeen.has(key)) continue;
       globalSeen.add(key);
       allItems.push(item);
