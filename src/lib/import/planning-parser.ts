@@ -756,32 +756,58 @@ export function parseSalaItemsFromExcelBuffer(
   month: number,
 ): { items: ShiftItemDraft[]; skippedRows: number; parsedRows: number } {
   const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-  const name = workbook.SheetNames[0];
-  if (!name) {
+  if (!workbook.SheetNames.length) {
     return { items: [], skippedRows: 0, parsedRows: 0 };
   }
-  const sheet = workbook.Sheets[name];
-  const matrix = toRawMatrix(sheet);
-  const rowBased = parseSalaFromRowLayoutMatrix(matrix, year, month);
-  if (rowBased.rowLayoutDetected) {
-    return {
-      items: rowBased.items,
-      skippedRows: rowBased.skipped,
-      parsedRows: rowBased.items.length,
-    };
-  }
-  const block = parseSalaFromWeekBlockMatrix(matrix, year, month);
 
-  if (block.anyDayHeaderInTargetMonth) {
-    return {
-      items: block.items,
-      skippedRows: block.skipped,
-      parsedRows: block.items.length,
-    };
-  }
+  const allItems: ShiftItemDraft[] = [];
+  const globalSeen = new Set<string>();
+  let skippedRows = 0;
+  let parsedRows = 0;
 
-  const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: false });
-  return parseSalaFromLegacyJsonRows(jsonRows, year, month);
+  for (const sheetName of workbook.SheetNames) {
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) continue;
+
+    const matrix = toRawMatrix(sheet);
+    const rowBased = parseSalaFromRowLayoutMatrix(matrix, year, month);
+    if (rowBased.rowLayoutDetected) {
+      for (const item of rowBased.items) {
+        const key = `${item.shift_date}|${item.kind}|${item.period}|${item.room_name ?? ""}|${item.specialty ?? ""}`;
+        if (globalSeen.has(key)) continue;
+        globalSeen.add(key);
+        allItems.push(item);
+      }
+      skippedRows += rowBased.skipped;
+      parsedRows += rowBased.items.length;
+      continue;
+    }
+
+    const block = parseSalaFromWeekBlockMatrix(matrix, year, month);
+    if (block.anyDayHeaderInTargetMonth) {
+      for (const item of block.items) {
+        const key = `${item.shift_date}|${item.kind}|${item.period}|${item.room_name ?? ""}|${item.specialty ?? ""}`;
+        if (globalSeen.has(key)) continue;
+        globalSeen.add(key);
+        allItems.push(item);
+      }
+      skippedRows += block.skipped;
+      parsedRows += block.items.length;
+      continue;
+    }
+
+    const jsonRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: null, raw: false });
+    const legacy = parseSalaFromLegacyJsonRows(jsonRows, year, month);
+    for (const item of legacy.items) {
+      const key = `${item.shift_date}|${item.kind}|${item.period}|${item.room_name ?? ""}|${item.specialty ?? ""}`;
+      if (globalSeen.has(key)) continue;
+      globalSeen.add(key);
+      allItems.push(item);
+    }
+    skippedRows += legacy.skippedRows;
+    parsedRows += legacy.parsedRows;
+  }
+  return { items: allItems, skippedRows, parsedRows };
 }
 
 /** Esegue l’import completo in memoria: sale da Excel + ambulatorio (lun–ven) + reperibilità. */
