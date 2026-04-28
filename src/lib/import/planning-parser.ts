@@ -56,6 +56,23 @@ const ITALIAN_MONTHS: Record<string, number> = {
   dicembre: 12,
 };
 
+const ITALIAN_MONTH_ALIASES: Record<string, number> = {
+  gen: 1,
+  genn: 1,
+  feb: 2,
+  mar: 3,
+  apr: 4,
+  mag: 5,
+  giu: 6,
+  lug: 7,
+  ago: 8,
+  set: 9,
+  sett: 9,
+  ott: 10,
+  nov: 11,
+  dic: 12,
+};
+
 function normalizeText(s: string) {
   return s
     .toLowerCase()
@@ -171,7 +188,13 @@ function findItalianMonthId(normalizedMonth: string): number | null {
   for (const [name, m] of Object.entries(ITALIAN_MONTHS)) {
     if (normalizedMonth === name) return m;
   }
+  for (const [name, m] of Object.entries(ITALIAN_MONTH_ALIASES)) {
+    if (normalizedMonth === name) return m;
+  }
   for (const [name, m] of Object.entries(ITALIAN_MONTHS)) {
+    if (name.startsWith(normalizedMonth) || normalizedMonth.startsWith(name)) return m;
+  }
+  for (const [name, m] of Object.entries(ITALIAN_MONTH_ALIASES)) {
     if (name.startsWith(normalizedMonth) || normalizedMonth.startsWith(name)) return m;
   }
   return null;
@@ -544,6 +567,31 @@ function collectWeekdayColumnHints(
   return out;
 }
 
+function inferDateWindowFromSheetName(
+  sheetName: string,
+  year: number,
+  defaultMonth: number,
+): { start: Date; end: Date } | null {
+  const t = normalizeText(sheetName).replace(/\s+/g, " ");
+  // es: "04 mag - 08 mag", "4 maggio - 8 maggio", opzionale anno.
+  const m = t.match(
+    /(\d{1,2})\s*([a-z\u00C0-\u024F.]+)\s*(?:\d{4})?\s*[-–]\s*(\d{1,2})\s*([a-z\u00C0-\u024F.]+)\s*(\d{4})?/i,
+  );
+  if (!m) return null;
+  const d1 = Number(m[1]);
+  const mon1 = findItalianMonthId(normalizeText(m[2].replace(/\./g, "")));
+  const d2 = Number(m[3]);
+  const mon2 = findItalianMonthId(normalizeText(m[4].replace(/\./g, "")));
+  const y = m[5] ? Number(m[5]) : year;
+  if (mon1 == null || mon2 == null) return null;
+  const start = new Date(y, mon1 - 1, d1);
+  const end = new Date(y, mon2 - 1, d2);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
+  if (start > end) return null;
+  if (start.getMonth() + 1 !== defaultMonth && end.getMonth() + 1 !== defaultMonth) return null;
+  return { start, end };
+}
+
 function normalizeBlockLabel(raw: string): string | null {
   const t = raw.trim();
   if (!t) return null;
@@ -554,7 +602,12 @@ function normalizeBlockLabel(raw: string): string | null {
   return t.replace(/\s+/g, " ");
 }
 
-function parseSalaFromRowLayoutMatrix(raw: unknown[][], year: number, month: number): ParseRowBasedResult {
+function parseSalaFromRowLayoutMatrix(
+  raw: unknown[][],
+  year: number,
+  month: number,
+  sheetName?: string,
+): ParseRowBasedResult {
   const m = raw.map((row) => row.map((c) => cellToDisplayString(c)));
   const maxCol = Math.max(0, ...m.map((r) => r.length));
   const items: ShiftItemDraft[] = [];
@@ -565,9 +618,11 @@ function parseSalaFromRowLayoutMatrix(raw: unknown[][], year: number, month: num
   const dayColumns: { col: number; ymd: string }[] = [];
   const weekdayHints = collectWeekdayColumnHints(m, maxCol).filter((h) => !h.isTech);
   const monthDatesByIso: Record<number, string[]> = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] };
-  const start = startOfMonth(new Date(year, month - 1, 1));
-  const end = endOfMonth(start);
+  const inferredWindow = sheetName ? inferDateWindowFromSheetName(sheetName, year, month) : null;
+  const start = inferredWindow?.start ?? startOfMonth(new Date(year, month - 1, 1));
+  const end = inferredWindow?.end ?? endOfMonth(startOfMonth(new Date(year, month - 1, 1)));
   for (const d of eachDayOfInterval({ start, end })) {
+    if (d.getMonth() + 1 !== month || d.getFullYear() !== year) continue;
     monthDatesByIso[getISODay(d)].push(format(d, "yyyy-MM-dd"));
   }
 
@@ -770,7 +825,7 @@ export function parseSalaItemsFromExcelBuffer(
     if (!sheet) continue;
 
     const matrix = toRawMatrix(sheet);
-    const rowBased = parseSalaFromRowLayoutMatrix(matrix, year, month);
+    const rowBased = parseSalaFromRowLayoutMatrix(matrix, year, month, sheetName);
     if (rowBased.rowLayoutDetected) {
       for (const item of rowBased.items) {
         const key = `${item.shift_date}|${item.kind}|${item.period}|${item.room_name ?? ""}|${item.specialty ?? ""}`;
