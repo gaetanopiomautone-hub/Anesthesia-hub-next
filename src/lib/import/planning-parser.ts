@@ -570,7 +570,7 @@ function collectWeekdayColumnHints(
 function inferDateWindowFromSheetName(
   sheetName: string,
   year: number,
-  defaultMonth: number,
+  _defaultMonth: number,
 ): { start: Date; end: Date } | null {
   const t = normalizeText(sheetName).replace(/\s+/g, " ");
   // es: "04 mag - 08 mag", "4 maggio - 8 maggio", opzionale anno.
@@ -588,7 +588,6 @@ function inferDateWindowFromSheetName(
   const end = new Date(y, mon2 - 1, d2);
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
   if (start > end) return null;
-  if (start.getMonth() + 1 !== defaultMonth && end.getMonth() + 1 !== defaultMonth) return null;
   return { start, end };
 }
 
@@ -649,9 +648,8 @@ function parseSalaFromRowLayoutMatrix(
   const inferredWindow = sheetName ? inferDateWindowFromSheetName(sheetName, year, month) : null;
   const inferredWindowIsOutsideSelectedMonth =
     inferredWindow != null &&
-    (inferredWindow.start.getFullYear() !== year ||
-      inferredWindow.end.getFullYear() !== year ||
-      (inferredWindow.start.getMonth() + 1 !== month && inferredWindow.end.getMonth() + 1 !== month));
+    ((inferredWindow.start.getFullYear() !== year || inferredWindow.start.getMonth() + 1 !== month) &&
+      (inferredWindow.end.getFullYear() !== year || inferredWindow.end.getMonth() + 1 !== month));
   const allowLooseHeaderFallback = !inferredWindowIsOutsideSelectedMonth;
   const start = inferredWindow?.start ?? startOfMonth(new Date(year, month - 1, 1));
   const end = inferredWindow?.end ?? endOfMonth(startOfMonth(new Date(year, month - 1, 1)));
