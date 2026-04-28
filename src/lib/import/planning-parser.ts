@@ -479,9 +479,19 @@ function parsePeriodFromTimeCell(raw: string): ShiftItemPeriod | null {
 function isSalaRowId(raw: string): boolean {
   const t = raw.trim();
   if (!t) return false;
-  if (/^\d{1,2}$/.test(t)) return true;
+  if (extractSalaNumber(t) != null) return true;
   if (normalizeText(t).startsWith("sala")) return true;
   return false;
+}
+
+function extractSalaNumber(raw: string): number | null {
+  const t = String(raw ?? "").trim();
+  if (!t) return null;
+  const m = t.match(/\d{1,3}/);
+  if (!m) return null;
+  const n = Number.parseInt(m[0], 10);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
 }
 
 function normalizeTimeRange(raw: string): string {
@@ -600,6 +610,7 @@ function parseSalaFromRowLayoutMatrix(raw: unknown[][], year: number, month: num
   }
 
   let currentBlock: string | null = null;
+  let lastSalaBase: string | null = null;
   for (let r = 0; r < m.length; r++) {
     const blockCandidate =
       normalizeBlockLabel(m[r]?.[0] ?? "") ??
@@ -607,13 +618,28 @@ function parseSalaFromRowLayoutMatrix(raw: unknown[][], year: number, month: num
       normalizeBlockLabel(m[r]?.[2] ?? "");
     if (blockCandidate) {
       currentBlock = blockCandidate;
+      lastSalaBase = null;
       continue;
     }
 
     const salaRaw = m[r]?.[0] ?? "";
     const timeRaw = m[r]?.[1] ?? "";
     const period = parsePeriodFromTimeCell(timeRaw);
-    if (!isSalaRowId(salaRaw) || !period) continue;
+    if (!period) continue;
+    const salaNum = extractSalaNumber(salaRaw);
+    const salaText = salaRaw.trim();
+    let baseRoom: string | null = null;
+    if (salaNum != null) {
+      baseRoom = `Sala ${salaNum}`;
+      lastSalaBase = baseRoom;
+    } else if (!isEmptyCellish(salaText) && normalizeText(salaText).startsWith("sala")) {
+      baseRoom = salaText;
+      lastSalaBase = baseRoom;
+    } else if (isEmptyCellish(salaText) && lastSalaBase) {
+      // Excel spesso lascia vuota la cella sala nella seconda riga (14-20): usa la sala precedente.
+      baseRoom = lastSalaBase;
+    }
+    if (!baseRoom || !isSalaRowId(baseRoom)) continue;
     rowLayoutDetected = true;
 
     for (const { col, ymd } of dayColumns) {
@@ -624,7 +650,6 @@ function parseSalaFromRowLayoutMatrix(raw: unknown[][], year: number, month: num
         skipped += 1;
         continue;
       }
-      const baseRoom = normalizeText(salaRaw).startsWith("sala") ? salaRaw.trim() : `Sala ${salaRaw.trim()}`;
       const room = currentBlock ? `${baseRoom} - ${currentBlock}` : baseRoom;
       const key = `${ymd}|sala|${period}|${room}|${value}`;
       if (seen.has(key)) continue;
