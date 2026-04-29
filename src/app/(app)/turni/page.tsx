@@ -127,6 +127,7 @@ export default async function TurniPage({ searchParams }: TurniPageProps) {
             </p>
           </Card>
           <TurniMonthView
+            key={`${yearMonth}-${plan.id}`}
             yearMonth={yearMonth}
             plan={plan}
             items={items}
@@ -134,7 +135,7 @@ export default async function TurniPage({ searchParams }: TurniPageProps) {
             currentUserRole={profile.role}
             assigneeOptions={assigneeOptions}
             changeLogs={changeLogs}
-            salaLocationOptions={salaLocationOptions.map((loc) => ({ id: loc.id, name: loc.name }))}
+            salaLocationOptions={salaLocationOptions}
           />
         </section>
       )}

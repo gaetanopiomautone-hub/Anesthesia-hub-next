@@ -492,7 +492,7 @@ export function TurniMonthView({
   currentUserRole,
   assigneeOptions,
   changeLogs,
-  salaLocationOptions = [],
+  salaLocationOptions,
 }: TurniMonthViewProps) {
   const router = useRouter();
   const [assignError, setAssignError] = useState<string | null>(null);
@@ -505,6 +505,19 @@ export function TurniMonthView({
   const isAdmin = currentUserRole === "admin";
   const canEditAssignments = canEditAssignmentsByPlanAndRole(plan.status, currentUserRole);
   const planIsApproved = plan.status === "approved";
+
+  /** Opzioni sale serializzate dal server: normalizza per evitare select vuoto se props sono null/non-array. */
+  const salaLocationsForPlanning = useMemo(() => {
+    const raw = salaLocationOptions;
+    if (raw == null || !Array.isArray(raw)) return [] as SalaLocationOption[];
+    return raw.filter(
+      (r): r is SalaLocationOption =>
+        r != null &&
+        typeof r.id === "string" &&
+        r.id.length > 0 &&
+        typeof r.name === "string",
+    );
+  }, [salaLocationOptions]);
 
   const nameById = useCallback(
     (id: string) => {
@@ -585,8 +598,8 @@ export function TurniMonthView({
 
   const salaPlanningAdd = useMemo(() => {
     if (!isAdmin || planIsApproved) return null;
-    return { planId: plan.id, yearMonth, locations: salaLocationOptions };
-  }, [isAdmin, planIsApproved, plan.id, yearMonth, salaLocationOptions]);
+    return { planId: plan.id, yearMonth, locations: [...salaLocationsForPlanning] };
+  }, [isAdmin, planIsApproved, plan.id, yearMonth, salaLocationsForPlanning]);
 
   return (
     <div className="space-y-6">
