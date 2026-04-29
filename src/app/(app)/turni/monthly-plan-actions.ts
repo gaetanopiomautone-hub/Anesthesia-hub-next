@@ -73,16 +73,25 @@ export async function assignShiftItemAction(input: AssignShiftItemInput): Promis
 
     try {
       await updateShiftAssignment(shiftItemId, userId);
-      await insertPlanningChangeLogs([
-        {
-          planning_month_id: item.plan_id,
-          shift_id: item.id,
-          actor_user_id: profile.id,
-          action: "updated",
-          before_data: { assigned_to: item.assigned_to },
-          after_data: { assigned_to: userId },
-        },
-      ]);
+      try {
+        await insertPlanningChangeLogs([
+          {
+            planning_month_id: item.plan_id,
+            shift_id: item.id,
+            actor_user_id: profile.id,
+            action: "updated",
+            before_data: { assigned_to: item.assigned_to },
+            after_data: { assigned_to: userId },
+          },
+        ]);
+      } catch (auditError) {
+        // Audit is best-effort: keep assignment successful even if log fails.
+        // eslint-disable-next-line no-console
+        console.error("assign_shift audit failed", {
+          shiftId: shiftItemId,
+          message: auditError instanceof Error ? auditError.message : String(auditError),
+        });
+      }
     } catch (e) {
       const raw = e instanceof Error ? e.message : "Errore in salvataggio";
       // eslint-disable-next-line no-console -- traccia minima per supporto

@@ -160,23 +160,29 @@ export async function importMonthlyPlanning(params: {
     importedAuditRows.push(...((insertedChunk ?? []) as InsertedShiftItemRowForAudit[]));
   }
 
-  await insertPlanningChangeLogs(
-    importedAuditRows.map((row) => ({
-      planning_month_id: row.plan_id,
-      shift_id: row.id,
-      actor_user_id: profile.id,
-      action: "imported" as const,
-      before_data: null,
-      after_data: {
-        shift_date: row.shift_date,
-        kind: row.kind,
-        period: row.period,
-        room_name: row.room_name,
-        specialty: row.specialty,
-        assigned_to: row.assigned_to,
-      },
-    })),
-  );
+  try {
+    await insertPlanningChangeLogs(
+      importedAuditRows.map((row) => ({
+        planning_month_id: row.plan_id,
+        shift_id: row.id,
+        actor_user_id: profile.id,
+        action: "imported" as const,
+        before_data: null,
+        after_data: {
+          shift_date: row.shift_date,
+          kind: row.kind,
+          period: row.period,
+          room_name: row.room_name,
+          specialty: row.specialty,
+          assigned_to: row.assigned_to,
+        },
+      })),
+    );
+  } catch (e) {
+    // Audit must never block production import.
+    // eslint-disable-next-line no-console
+    console.error("Audit failed, continuing import", e);
+  }
 
   const plan = await getMonthlyShiftPlanByYearMonth({ year, month, supabase: supabaseAdmin });
   if (!plan) {

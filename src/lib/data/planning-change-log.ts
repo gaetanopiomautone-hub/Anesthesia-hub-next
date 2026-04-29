@@ -74,7 +74,10 @@ export async function listPlanningChangeLogsByPlanId(planId: string, limit = 200
     .order("created_at", { ascending: false })
     .limit(limit);
   if (error) {
-    throw new Error(`planning_change_log query failed: ${error.message}`);
+    // Audit is non-critical for core turni workflow: never break page rendering.
+    // eslint-disable-next-line no-console
+    console.error("planning_change_log query failed", { planId, message: error.message });
+    return [];
   }
   return (data ?? []).map((r) => mapLog(r as Record<string, unknown>));
 }
