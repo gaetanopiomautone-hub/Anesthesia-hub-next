@@ -330,6 +330,20 @@ create table if not exists public.shift_items (
 create index if not exists shift_items_plan_id_shift_date_idx
   on public.shift_items (plan_id, shift_date);
 
+create table if not exists public.planning_change_log (
+  id uuid primary key default gen_random_uuid(),
+  planning_month_id uuid not null references public.monthly_shift_plans (id) on delete cascade,
+  shift_id uuid references public.shift_items (id) on delete set null,
+  actor_user_id uuid references public.profiles (id) on delete set null,
+  action text not null check (action in ('created', 'updated', 'deleted', 'imported')),
+  before_data jsonb,
+  after_data jsonb,
+  created_at timestamptz not null default now()
+);
+
+create index if not exists planning_change_log_plan_created_idx
+  on public.planning_change_log (planning_month_id, created_at desc);
+
 -- ---------------------------------------------------------------------------
 -- Helper: current role from profiles (used by RLS policies)
 -- ---------------------------------------------------------------------------

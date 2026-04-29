@@ -476,6 +476,22 @@ to authenticated
 using (public.is_admin());
 
 -- ---------------------------------------------------------------------------
+-- planning_change_log
+-- Rules:
+-- - select: solo admin
+-- - insert/update/delete: solo service role (nessuna policy authenticated)
+-- ---------------------------------------------------------------------------
+
+alter table public.planning_change_log enable row level security;
+
+drop policy if exists "planning_change_log_select_admin" on public.planning_change_log;
+create policy "planning_change_log_select_admin"
+on public.planning_change_log
+for select
+to authenticated
+using (public.is_admin());
+
+-- ---------------------------------------------------------------------------
 -- Storage: bucket privato learning-pdfs (PDF didattici)
 -- Eseguire anche l'insert in storage.buckets (vedi snippet sotto) se il bucket non esiste.
 -- ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ import {
 } from "@/app/(app)/turni/monthly-plan-actions";
 import { buildUserLoadLines, canEditAssignmentsByPlanAndRole, computeLoadWarnings } from "@/lib/domain/shift-rules";
 import type { MonthlyShiftPlanRow, ShiftItemRow } from "@/lib/domain/monthly-shifts";
+import type { PlanningChangeLogRow } from "@/lib/data/planning-change-log";
 import {
   monthlyShiftPlanStatusLabelItalian,
   shiftItemKindLabelItalian,
@@ -61,6 +62,12 @@ function personLabel(people: AssigneeOption[], id: string | null) {
   return p.full_name?.trim() || p.email?.trim() || p.id;
 }
 
+function formatAuditDateTime(ts: string) {
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return ts;
+  return format(d, "dd/MM/yyyy HH:mm");
+}
+
 type TurniMonthViewProps = {
   yearMonth: string;
   plan: MonthlyShiftPlanRow;
@@ -68,6 +75,7 @@ type TurniMonthViewProps = {
   currentUserId: string;
   currentUserRole: "specializzando" | "tutor" | "admin";
   assigneeOptions: AssigneeOption[];
+  changeLogs: PlanningChangeLogRow[];
 };
 
 function TurniItemRow({
@@ -351,6 +359,7 @@ export function TurniMonthView({
   currentUserId,
   currentUserRole,
   assigneeOptions,
+  changeLogs,
 }: TurniMonthViewProps) {
   const router = useRouter();
   const [assignError, setAssignError] = useState<string | null>(null);
@@ -655,6 +664,46 @@ export function TurniMonthView({
           </form>
         ) : null}
       </div>
+
+      {isAdmin ? (
+        <Card title="Storico modifiche" description="Audit trail del planning del mese (ultime modifiche).">
+          {changeLogs.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Nessuna modifica registrata per questo mese.</p>
+          ) : (
+            <div className="max-h-72 overflow-auto">
+              <table className="w-full text-xs">
+                <thead className="text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-2 py-1 text-left">Quando</th>
+                    <th className="px-2 py-1 text-left">Azione</th>
+                    <th className="px-2 py-1 text-left">Shift</th>
+                    <th className="px-2 py-1 text-left">Dettagli</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {changeLogs.map((log) => (
+                    <tr key={log.id} className="border-b border-border/60">
+                      <td className="px-2 py-1 whitespace-nowrap">{formatAuditDateTime(log.created_at)}</td>
+                      <td className="px-2 py-1">{log.action}</td>
+                      <td className="px-2 py-1 font-mono text-[11px]">{log.shift_id ?? "—"}</td>
+                      <td className="px-2 py-1">
+                        {log.after_data ? (
+                          <span className="text-muted-foreground">
+                            {(log.after_data.period as string | undefined) ?? ""}{" "}
+                            {(log.after_data.room_name as string | undefined) ?? ""}
+                          </span>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      ) : null}
     </div>
   );
 }

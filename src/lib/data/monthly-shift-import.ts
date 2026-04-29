@@ -2,6 +2,7 @@ import { requireRole } from "@/lib/auth/get-current-user-profile";
 import { buildAllShiftItemsForImport } from "@/lib/import/planning-parser";
 import type { ShiftItemDraft } from "@/lib/import/planning-parser";
 import { getMonthlyShiftPlanByYearMonth } from "@/lib/data/monthly-shift-plans";
+import { insertPlanningChangeLogs } from "@/lib/data/planning-change-log";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 import type { MonthlyShiftPlanRow } from "@/lib/domain/monthly-shifts";
 import { createClient } from "@supabase/supabase-js";
@@ -28,6 +29,17 @@ type InsertRow = {
   room_name: string | null;
   specialty: string | null;
   source: ShiftItemDraft["source"];
+};
+
+type InsertedShiftItemRowForAudit = {
+  id: string;
+  plan_id: string;
+  shift_date: string;
+  kind: ShiftItemDraft["kind"];
+  period: ShiftItemDraft["period"];
+  room_name: string | null;
+  specialty: string | null;
+  assigned_to: string | null;
 };
 
 function toInsertRows(planId: string, drafts: ShiftItemDraft[]): InsertRow[] {
@@ -134,14 +146,37 @@ export async function importMonthlyPlanning(params: {
   }
 
   const rows = toInsertRows(planId, all);
+  const importedAuditRows: InsertedShiftItemRowForAudit[] = [];
   for (let i = 0; i < rows.length; i += INSERT_CHUNK) {
     const chunk = rows.slice(i, i + INSERT_CHUNK);
-    const { error: itemsErr } = await supabaseAdmin.from("shift_items").insert(chunk);
+    const { data: insertedChunk, error: itemsErr } = await supabaseAdmin
+      .from("shift_items")
+      .insert(chunk)
+      .select("id,plan_id,shift_date,kind,period,room_name,specialty,assigned_to");
     if (itemsErr) {
       await supabaseAdmin.from("monthly_shift_plans").delete().eq("id", planId);
       return { ok: false, error: `shift_items: ${itemsErr.message}`, code: "DB" };
     }
+    importedAuditRows.push(...((insertedChunk ?? []) as InsertedShiftItemRowForAudit[]));
   }
+
+  await insertPlanningChangeLogs(
+    importedAuditRows.map((row) => ({
+      planning_month_id: row.plan_id,
+      shift_id: row.id,
+      actor_user_id: profile.id,
+      action: "imported" as const,
+      before_data: null,
+      after_data: {
+        shift_date: row.shift_date,
+        kind: row.kind,
+        period: row.period,
+        room_name: row.room_name,
+        specialty: row.specialty,
+        assigned_to: row.assigned_to,
+      },
+    })),
+  );
 
   const plan = await getMonthlyShiftPlanByYearMonth({ year, month, supabase: supabaseAdmin });
   if (!plan) {

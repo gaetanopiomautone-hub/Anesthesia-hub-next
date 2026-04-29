@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { requireSection } from "@/lib/auth/get-current-user-profile";
+import { listPlanningChangeLogsByPlanId } from "@/lib/data/planning-change-log";
 import { getMonthlyShiftPlanByYearMonth, listShiftItemsByPlanId } from "@/lib/data/monthly-shift-plans";
 import { listAssignableUsers } from "@/lib/data/shifts";
 import { getMonthContext } from "@/lib/dates/getMonthContext";
@@ -34,6 +35,7 @@ export default async function TurniPage({ searchParams }: TurniPageProps) {
 
   const plan = await getMonthlyShiftPlanByYearMonth({ year: y, month: m });
   const items = plan ? await listShiftItemsByPlanId(plan.id) : [];
+  const changeLogs = plan && profile.role === "admin" ? await listPlanningChangeLogsByPlanId(plan.id, 250) : [];
   const assigneeOptions = await listAssignableUsers();
 
   return (
@@ -120,6 +122,7 @@ export default async function TurniPage({ searchParams }: TurniPageProps) {
             currentUserId={profile.id}
             currentUserRole={profile.role}
             assigneeOptions={assigneeOptions}
+            changeLogs={changeLogs}
           />
         </section>
       )}
