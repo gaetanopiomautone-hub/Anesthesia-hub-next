@@ -16,6 +16,7 @@ import {
   approveMonthlyPlan,
   reopenMonthlyPlan,
 } from "@/lib/data/monthly-shift-plans";
+import { insertPlanningChangeLogs } from "@/lib/data/planning-change-log";
 
 const yearMonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 
@@ -72,6 +73,16 @@ export async function assignShiftItemAction(input: AssignShiftItemInput): Promis
 
     try {
       await updateShiftAssignment(shiftItemId, userId);
+      await insertPlanningChangeLogs([
+        {
+          planning_month_id: item.plan_id,
+          shift_id: item.id,
+          actor_user_id: profile.id,
+          action: "updated",
+          before_data: { assigned_to: item.assigned_to },
+          after_data: { assigned_to: userId },
+        },
+      ]);
     } catch (e) {
       const raw = e instanceof Error ? e.message : "Errore in salvataggio";
       // eslint-disable-next-line no-console -- traccia minima per supporto
