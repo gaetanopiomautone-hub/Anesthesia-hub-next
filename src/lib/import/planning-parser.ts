@@ -573,15 +573,15 @@ function inferDateWindowFromSheetName(
   _defaultMonth: number,
 ): { start: Date; end: Date } | null {
   const t = normalizeText(sheetName).replace(/\s+/g, " ");
-  // es: "04 mag - 08 mag", "4 maggio - 8 maggio", opzionale anno.
+  // es: "04 mag - 08 mag", "4 maggio - 8 maggio", "04 MAG - 08" (mese solo a sinistra).
   const m = t.match(
-    /(\d{1,2})\s*([a-z\u00C0-\u024F.]+)\s*(?:\d{4})?\s*[-–]\s*(\d{1,2})\s*([a-z\u00C0-\u024F.]+)\s*(\d{4})?/i,
+    /(\d{1,2})\s*([a-z\u00C0-\u024F.]+)\s*(?:\d{4})?\s*[-–]\s*(\d{1,2})(?:\s*([a-z\u00C0-\u024F.]+))?\s*(\d{4})?/i,
   );
   if (!m) return null;
   const d1 = Number(m[1]);
   const mon1 = findItalianMonthId(normalizeText(m[2].replace(/\./g, "")));
   const d2 = Number(m[3]);
-  const mon2 = findItalianMonthId(normalizeText(m[4].replace(/\./g, "")));
+  const mon2 = m[4] ? findItalianMonthId(normalizeText(m[4].replace(/\./g, ""))) : mon1;
   const y = m[5] ? Number(m[5]) : year;
   if (mon1 == null || mon2 == null) return null;
   const start = new Date(y, mon1 - 1, d1);
@@ -589,6 +589,16 @@ function inferDateWindowFromSheetName(
   if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return null;
   if (start > end) return null;
   return { start, end };
+}
+
+function inferSheetMonthFromName(sheetName: string): number | null {
+  const normalized = normalizeText(sheetName).replace(/[.\-_/]/g, " ");
+  const tokens = normalized.split(/\s+/).filter(Boolean);
+  for (const token of tokens) {
+    const monthId = findItalianMonthId(token);
+    if (monthId != null) return monthId;
+  }
+  return null;
 }
 
 function normalizeBlockLabel(raw: string): string | null {
@@ -646,11 +656,8 @@ function parseSalaFromRowLayoutMatrix(
   const weekdayHints = collectWeekdayColumnHints(m, maxCol).filter((h) => !h.isTech);
   const monthDatesByIso: Record<number, string[]> = { 1: [], 2: [], 3: [], 4: [], 5: [], 6: [], 7: [] };
   const inferredWindow = sheetName ? inferDateWindowFromSheetName(sheetName, year, month) : null;
-  const inferredWindowIsOutsideSelectedMonth =
-    inferredWindow != null &&
-    ((inferredWindow.start.getFullYear() !== year || inferredWindow.start.getMonth() + 1 !== month) &&
-      (inferredWindow.end.getFullYear() !== year || inferredWindow.end.getMonth() + 1 !== month));
-  const allowLooseHeaderFallback = !inferredWindowIsOutsideSelectedMonth;
+  const explicitSheetMonth = sheetName ? inferSheetMonthFromName(sheetName) : null;
+  const allowLooseHeaderFallback = explicitSheetMonth == null || explicitSheetMonth === month;
   const start = inferredWindow?.start ?? startOfMonth(new Date(year, month - 1, 1));
   const end = inferredWindow?.end ?? endOfMonth(startOfMonth(new Date(year, month - 1, 1)));
   for (const d of eachDayOfInterval({ start, end })) {
