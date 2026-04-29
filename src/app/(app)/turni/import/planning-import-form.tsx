@@ -10,13 +10,14 @@ import {
   importPlanningAction,
   checkMonthlyPlanExistsAction,
 } from "@/app/(app)/turni/import-actions";
-import type { PlanningFilePreview } from "@/lib/import/planning-parser";
+import type { PlanningFilePreview, ShiftItemDraft } from "@/lib/import/planning-parser";
 import { formatDateItalian } from "@/lib/domain/leave-request-shared";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils/cn";
 import { Card } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import type { AppRole } from "@/lib/auth/roles";
 
 const defaultYear = new Date().getFullYear();
 const defaultMonth = new Date().getMonth() + 1;
@@ -37,11 +38,19 @@ function toIntForImport(v: FormDataEntryValue | null): number | null {
   return Math.trunc(n);
 }
 
-export function PlanningImportForm() {
+type EditableSalaItem = ShiftItemDraft & { id: string };
+
+function toSalaLabel(period: "mattina" | "pomeriggio") {
+  return period === "mattina" ? "Sala · Mattina" : "Sala · Pomeriggio";
+}
+
+export function PlanningImportForm({ role }: { role: AppRole }) {
+  const isAdmin = role === "admin";
   const formRef = useRef<HTMLFormElement>(null);
   const [year, setYear] = useState(defaultYear);
   const [month, setMonth] = useState(defaultMonth);
   const [preview, setPreview] = useState<Extract<PlanningFilePreview, { ok: true }> | null>(null);
+  const [editableSalaItems, setEditableSalaItems] = useState<EditableSalaItem[]>([]);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [importError, setImportError] = useState<string | null>(null);
   const [importDuplicateYearMonth, setImportDuplicateYearMonth] = useState<string | null>(null);
@@ -50,6 +59,10 @@ export function PlanningImportForm() {
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
+    if (!isAdmin) {
+      setExistingDbPlan(null);
+      return;
+    }
     if (!Number.isInteger(year) || year < 2000 || year > 2100) {
       setExistingDbPlan(null);
       return;
@@ -74,7 +87,7 @@ export function PlanningImportForm() {
       });
     }, 350);
     return () => window.clearTimeout(t);
-  }, [year, month]);
+  }, [isAdmin, year, month]);
 
   useEffect(() => {
     setOverwrite(false);
@@ -85,6 +98,7 @@ export function PlanningImportForm() {
     setImportError(null);
     setImportDuplicateYearMonth(null);
     setPreview(null);
+    setEditableSalaItems([]);
     const form = formRef.current;
     if (!form) return;
     const fileInput = form.querySelector<HTMLInputElement>('input[name="file"]');
@@ -96,7 +110,13 @@ export function PlanningImportForm() {
     startTransition(async () => {
       const result = await previewPlanningAction(fd);
       if (result.ok) {
-        setPreview(result);
+        setPreview(result.preview);
+        setEditableSalaItems(
+          result.salaItems.map((item, i) => ({
+            ...item,
+            id: `${item.shift_date}-${item.period}-${item.room_name ?? "sala"}-${i}`,
+          })),
+        );
         return;
       }
       setPreviewError(result.error);
@@ -113,6 +133,19 @@ export function PlanningImportForm() {
       return;
     }
     const fd = new FormData(form);
+    if (isAdmin) {
+      fd.set(
+        "editedSalaItems",
+        JSON.stringify(
+          editableSalaItems.map(({ id: _id, ...item }) => ({
+            ...item,
+            period: item.period === "pomeriggio" ? "pomeriggio" : "mattina",
+            label: toSalaLabel(item.period === "pomeriggio" ? "pomeriggio" : "mattina"),
+            source: "excel" as const,
+          })),
+        ),
+      );
+    }
     startTransition(async () => {
       try {
         const result = await importPlanningAction(fd);
@@ -136,6 +169,36 @@ export function PlanningImportForm() {
       }
     });
   };
+
+  const updateSalaItem = (id: string, patch: Partial<EditableSalaItem>) => {
+    setEditableSalaItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...patch } : it)));
+  };
+
+  const removeSalaItem = (id: string) => {
+    setEditableSalaItems((prev) => prev.filter((it) => it.id !== id));
+  };
+
+  const addSalaItem = () => {
+    const date = `${year}-${String(month).padStart(2, "0")}-01`;
+    setEditableSalaItems((prev) => [
+      ...prev,
+      {
+        id: `new-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        shift_date: date,
+        kind: "sala",
+        period: "mattina",
+        start_time: "08:00:00",
+        end_time: "14:00:00",
+        label: "Sala · Mattina",
+        room_name: "Sala",
+        specialty: "",
+        source: "excel",
+      },
+    ]);
+  };
+
+  const effectiveSaleCount = preview ? (isAdmin ? editableSalaItems.length : preview.saleCount) : 0;
+  const effectiveTotalItems = preview ? preview.totalItems - preview.saleCount + effectiveSaleCount : 0;
 
   return (
     <div className="space-y-8">
@@ -212,7 +275,7 @@ export function PlanningImportForm() {
             <ul className="grid gap-2 sm:grid-cols-2">
               <li>
                 <span className="text-muted-foreground">Slot sale operatorie: </span>
-                <span className="font-medium tabular-nums">{preview.saleCount}</span>
+                <span className="font-medium tabular-nums">{effectiveSaleCount}</span>
               </li>
               <li>
                 <span className="text-muted-foreground">Righe file escluse: </span>
@@ -228,9 +291,14 @@ export function PlanningImportForm() {
               </li>
               <li className="sm:col-span-2">
                 <span className="text-muted-foreground">Totale voci in import: </span>
-                <span className="font-medium tabular-nums">{preview.totalItems}</span>
+                <span className="font-medium tabular-nums">{effectiveTotalItems}</span>
               </li>
             </ul>
+            {!isAdmin ? (
+              <div className="rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                Visualizzazione in sola lettura: solo gli admin possono modificare e importare gli slot sala.
+              </div>
+            ) : null}
             {preview.weekdayDatesWithoutSala.length > 0 ? (
               <div
                 className="rounded-lg border border-amber-200/80 bg-amber-50/90 px-3 py-2 text-amber-950"
@@ -295,11 +363,111 @@ export function PlanningImportForm() {
                 )}
               </ol>
             </div>
+            <div className="rounded-lg border border-border bg-background/80 p-3">
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-sm font-medium">Slot sala importati</p>
+                {isAdmin ? (
+                  <Button type="button" variant="secondary" size="sm" onClick={addSalaItem}>
+                    Aggiungi sala
+                  </Button>
+                ) : null}
+              </div>
+              <div className="max-h-80 overflow-auto">
+                <table className="w-full text-xs">
+                  <thead className="text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-2 py-1 text-left">Data</th>
+                      <th className="px-2 py-1 text-left">Fascia</th>
+                      <th className="px-2 py-1 text-left">Sala</th>
+                      <th className="px-2 py-1 text-left">Specialità</th>
+                      {isAdmin ? <th className="px-2 py-1 text-right">Azioni</th> : null}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {editableSalaItems.length === 0 ? (
+                      <tr>
+                        <td className="px-2 py-2 text-muted-foreground" colSpan={isAdmin ? 5 : 4}>
+                          Nessuno slot sala rilevato.
+                        </td>
+                      </tr>
+                    ) : (
+                      editableSalaItems.map((item) => (
+                        <tr key={item.id} className="border-b border-border/60">
+                          <td className="px-2 py-1">
+                            {isAdmin ? (
+                              <Input
+                                type="date"
+                                value={item.shift_date}
+                                onChange={(e) => updateSalaItem(item.id, { shift_date: e.target.value })}
+                              />
+                            ) : (
+                              formatDateItalian(item.shift_date)
+                            )}
+                          </td>
+                          <td className="px-2 py-1">
+                            {isAdmin ? (
+                              <select
+                                className="h-9 w-full rounded-md border border-input bg-background px-2 text-sm"
+                                value={item.period}
+                                onChange={(e) => {
+                                  const period = e.target.value === "pomeriggio" ? "pomeriggio" : "mattina";
+                                  updateSalaItem(item.id, {
+                                    period,
+                                    start_time: period === "mattina" ? "08:00:00" : "14:00:00",
+                                    end_time: period === "mattina" ? "14:00:00" : "20:00:00",
+                                    label: toSalaLabel(period),
+                                  });
+                                }}
+                              >
+                                <option value="mattina">Mattina</option>
+                                <option value="pomeriggio">Pomeriggio</option>
+                              </select>
+                            ) : (
+                              item.period === "mattina" ? "Mattina" : "Pomeriggio"
+                            )}
+                          </td>
+                          <td className="px-2 py-1">
+                            {isAdmin ? (
+                              <Input
+                                value={item.room_name ?? ""}
+                                onChange={(e) => updateSalaItem(item.id, { room_name: e.target.value })}
+                                placeholder="Sala 1 - B.O. 2B"
+                              />
+                            ) : (
+                              item.room_name
+                            )}
+                          </td>
+                          <td className="px-2 py-1">
+                            {isAdmin ? (
+                              <Input
+                                value={item.specialty ?? ""}
+                                onChange={(e) => updateSalaItem(item.id, { specialty: e.target.value })}
+                                placeholder="Specialità"
+                              />
+                            ) : (
+                              item.specialty
+                            )}
+                          </td>
+                          {isAdmin ? (
+                            <td className="px-2 py-1 text-right">
+                              <Button type="button" variant="ghost" size="sm" onClick={() => removeSalaItem(item.id)}>
+                                Elimina
+                              </Button>
+                            </td>
+                          ) : null}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
             <div className="border-t border-border pt-4">
               <p className="text-xs text-muted-foreground">
                 Confermando, verrà creato un piano in bozza con tutte le voci. Nessun utente assegnato a questo step.
               </p>
-              <div className="mt-3 space-y-2 rounded-md border border-border bg-muted/30 px-3 py-2.5">
+              {isAdmin ? (
+                <div className="mt-3 space-y-2 rounded-md border border-border bg-muted/30 px-3 py-2.5">
                 <label className="flex cursor-pointer items-start gap-2 text-sm text-foreground">
                   <input
                     type="checkbox"
@@ -316,7 +484,8 @@ export function PlanningImportForm() {
                     </span>
                   </span>
                 </label>
-              </div>
+                </div>
+              ) : null}
               {importError ? (
                 <div role="alert" className="mt-3 space-y-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
                   <p>{importError}</p>
@@ -332,14 +501,16 @@ export function PlanningImportForm() {
                   ) : null}
                 </div>
               ) : null}
-              <Button
-                type="button"
-                className="mt-3"
-                onClick={runImport}
-                disabled={isPending}
-              >
-                {isPending && preview ? "Import in corso…" : "Importa in produzione"}
-              </Button>
+              {isAdmin ? (
+                <Button
+                  type="button"
+                  className="mt-3"
+                  onClick={runImport}
+                  disabled={isPending}
+                >
+                  {isPending && preview ? "Import in corso…" : "Importa in produzione"}
+                </Button>
+              ) : null}
             </div>
           </div>
         </Card>

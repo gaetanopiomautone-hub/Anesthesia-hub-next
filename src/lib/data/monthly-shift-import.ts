@@ -66,9 +66,11 @@ export async function importMonthlyPlanning(params: {
   /** Se true: elimina piano + righe (cascade) e reimporta. Solo admin (server). */
   overwrite?: boolean;
   extraHolidayYmds?: string[];
+  /** Slot sala modificati manualmente in anteprima admin. */
+  overrideSalaItems?: ShiftItemDraft[];
 }): Promise<ImportMonthlyPlanningResult> {
   const profile = await requireRole(["admin"]);
-  const { year, month, fileBuffer, overwrite = false, extraHolidayYmds } = params;
+  const { year, month, fileBuffer, overwrite = false, extraHolidayYmds, overrideSalaItems } = params;
 
   const supabaseAdmin = createServiceRoleSupabaseClient();
 
@@ -98,7 +100,9 @@ export async function importMonthlyPlanning(params: {
     }
   }
 
-  const { sala, all } = buildAllShiftItemsForImport(year, month, fileBuffer, { extraHolidayYmds });
+  const built = buildAllShiftItemsForImport(year, month, fileBuffer, { extraHolidayYmds });
+  const salaItems = (overrideSalaItems ?? built.sala.items).filter((s) => s.kind === "sala");
+  const all = [...salaItems, ...built.ambulatorio, ...built.onCallItems];
 
   const { data: inserted, error: insertPlanErr } = await supabaseAdmin
     .from("monthly_shift_plans")
@@ -148,7 +152,7 @@ export async function importMonthlyPlanning(params: {
     ok: true,
     plan,
     itemCount: all.length,
-    parsedRows: sala.parsedRows,
-    skippedRows: sala.skippedRows,
+    parsedRows: salaItems.length,
+    skippedRows: built.sala.skippedRows,
   };
 }

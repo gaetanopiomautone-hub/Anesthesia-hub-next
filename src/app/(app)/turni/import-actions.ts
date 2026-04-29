@@ -4,8 +4,8 @@ import { redirect } from "next/navigation";
 
 import { importMonthlyPlanning, type ImportMonthlyPlanningResult } from "@/lib/data/monthly-shift-import";
 import { getMonthlyShiftPlanByYearMonth } from "@/lib/data/monthly-shift-plans";
-import { parsePlanningFile, type PlanningFilePreview } from "@/lib/import/planning-parser";
-import { requireRole } from "@/lib/auth/get-current-user-profile";
+import { buildAllShiftItemsForImport, parsePlanningFile, type PlanningFilePreview, type ShiftItemDraft } from "@/lib/import/planning-parser";
+import { requireSection, requireUser } from "@/lib/auth/get-current-user-profile";
 
 function toInt(v: FormDataEntryValue | null, label: string): { ok: true; n: number } | { ok: false; error: string } {
   if (v == null || v === "") return { ok: false, error: `${label} mancante` };
@@ -17,21 +17,61 @@ function toInt(v: FormDataEntryValue | null, label: string): { ok: true; n: numb
 /**
  * Anteprima senza scrittura DB. Solo **admin** (stesso criterio dell’import reale).
  */
-export async function previewPlanningAction(formData: FormData): Promise<PlanningFilePreview> {
-  await requireRole(["admin"]);
+export async function previewPlanningAction(
+  formData: FormData,
+): Promise<
+  | { ok: true; preview: Extract<PlanningFilePreview, { ok: true }>; salaItems: ShiftItemDraft[]; canEdit: boolean }
+  | { ok: false; error: string; canEdit: boolean }
+> {
+  const profile = await requireSection("turni");
 
   const file = formData.get("file");
   if (!file || !(file instanceof File) || file.size === 0) {
-    return { ok: false, error: "File mancante o vuoto" };
+    return { ok: false, error: "File mancante o vuoto", canEdit: profile.role === "admin" };
   }
 
   const y = toInt(formData.get("year"), "Anno");
   const m = toInt(formData.get("month"), "Mese");
-  if (!y.ok) return { ok: false, error: y.error };
-  if (!m.ok) return { ok: false, error: m.error };
+  if (!y.ok) return { ok: false, error: y.error, canEdit: profile.role === "admin" };
+  if (!m.ok) return { ok: false, error: m.error, canEdit: profile.role === "admin" };
 
   const buffer = await file.arrayBuffer();
-  return parsePlanningFile(buffer, y.n, m.n);
+  const preview = parsePlanningFile(buffer, y.n, m.n);
+  if (!preview.ok) {
+    return { ok: false, error: preview.error, canEdit: profile.role === "admin" };
+  }
+  const built = buildAllShiftItemsForImport(y.n, m.n, buffer);
+  return { ok: true, preview, salaItems: built.sala.items, canEdit: profile.role === "admin" };
+}
+
+function parseEditedSalaItems(raw: FormDataEntryValue | null): ShiftItemDraft[] | null {
+  if (!raw || typeof raw !== "string" || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    const out: ShiftItemDraft[] = [];
+    for (const i of parsed) {
+      if (!i || typeof i !== "object") continue;
+      const item = i as Record<string, unknown>;
+      if (item.kind !== "sala") continue;
+      if (typeof item.shift_date !== "string" || typeof item.label !== "string") continue;
+      if (item.period !== "mattina" && item.period !== "pomeriggio") continue;
+      out.push({
+        shift_date: item.shift_date,
+        kind: "sala",
+        period: item.period,
+        start_time: typeof item.start_time === "string" ? item.start_time : null,
+        end_time: typeof item.end_time === "string" ? item.end_time : null,
+        label: item.label,
+        room_name: typeof item.room_name === "string" ? item.room_name : null,
+        specialty: typeof item.specialty === "string" ? item.specialty : null,
+        source: "excel",
+      });
+    }
+    return out;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -51,6 +91,7 @@ export async function importPlanningAction(
   if (!m.ok) return { ok: false, error: m.error, code: "FILE" };
 
   const overwrite = formData.get("overwrite") === "on";
+  const editedSalaItems = parseEditedSalaItems(formData.get("editedSalaItems"));
 
   const buffer = await file.arrayBuffer();
   const result = await importMonthlyPlanning({
@@ -58,6 +99,7 @@ export async function importPlanningAction(
     month: m.n,
     fileBuffer: buffer,
     overwrite,
+    overrideSalaItems: editedSalaItems ?? undefined,
   });
 
   if (result.ok) {
@@ -73,7 +115,10 @@ export async function checkMonthlyPlanExistsAction(
   year: number,
   month: number,
 ): Promise<{ exists: boolean; yearMonth: string }> {
-  await requireRole(["admin"]);
+  const profile = await requireUser();
+  if (profile.role !== "admin") {
+    return { exists: false, yearMonth: "" };
+  }
   if (!Number.isInteger(year) || year < 2000 || year > 2100) {
     return { exists: false, yearMonth: "" };
   }
