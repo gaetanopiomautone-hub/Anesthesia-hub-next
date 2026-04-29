@@ -46,12 +46,20 @@ export default async function TurniPage({ searchParams }: TurniPageProps) {
         description="Turni per sala, ambulatorio e reperibilità, legati al planning mensile (import e assegnazioni in un unico flusso)."
         actions={
           profile.role === "admin" ? (
-            <Link
-              href="/turni/import"
-              className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-            >
-              Import planning Excel
-            </Link>
+            <div className="flex items-center gap-2">
+              <Link
+                href="/admin/locations"
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+              >
+                Gestisci sale
+              </Link>
+              <Link
+                href="/turni/import"
+                className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+              >
+                Import planning Excel
+              </Link>
+            </div>
           ) : null
         }
       />
