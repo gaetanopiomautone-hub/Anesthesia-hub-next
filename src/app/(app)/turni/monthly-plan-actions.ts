@@ -173,7 +173,7 @@ export async function addPlanningSlotAction(input: AddPlanningSlotInput): Promis
 
     const { data: locRaw, error: locErr } = await supabase
       .from("clinical_locations")
-      .select("id,name,specialty,area_type,is_active")
+      .select("id,name,area_type,is_active")
       .eq("id", input.clinicalLocationId)
       .maybeSingle();
 
@@ -185,7 +185,6 @@ export async function addPlanningSlotAction(input: AddPlanningSlotInput): Promis
       | {
           id: string;
           name: string;
-          specialty: string | null;
           area_type: "sala_operatoria" | "rianimazione";
           is_active: boolean;
         }
@@ -234,7 +233,7 @@ export async function addPlanningSlotAction(input: AddPlanningSlotInput): Promis
         end_time: start_end.end_time,
         label: loc.name,
         room_name: loc.name,
-        specialty: loc.specialty?.trim() ? loc.specialty.trim() : null,
+        specialty: null,
         source: "manual",
       })
       .select("id")
