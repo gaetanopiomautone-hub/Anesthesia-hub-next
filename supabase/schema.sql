@@ -321,7 +321,7 @@ create table if not exists public.shift_items (
   room_name text,
   specialty text,
   source text not null default 'generated'
-    check (source in ('excel', 'generated')),
+    check (source in ('excel', 'generated', 'manual')),
   assigned_to uuid references public.profiles (id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -399,6 +399,11 @@ drop trigger if exists shift_items_set_updated_at on public.shift_items;
 create trigger shift_items_set_updated_at
 before update on public.shift_items
 for each row execute function public.set_updated_at();
+
+-- Aggiorna vincoli su DB già creati prima dell’aggiunta di `manual` (idempotente)
+alter table public.shift_items drop constraint if exists shift_items_source_check;
+alter table public.shift_items add constraint shift_items_source_check
+  check (source in ('excel', 'generated', 'manual'));
 
 -- ---------------------------------------------------------------------------
 -- Auth bootstrap: auto-create profile on new auth.users row

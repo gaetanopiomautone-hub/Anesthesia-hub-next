@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useId, useMemo, useState } from "react";
 
 import {
+  addPlanningSlotAction,
   assignShiftItemAction,
   submitMonthlyPlanAction,
   approveMonthlyPlanAction,
@@ -18,6 +19,7 @@ import type { PlanningChangeLogRow } from "@/lib/data/planning-change-log";
 import {
   monthlyShiftPlanStatusLabelItalian,
   shiftItemKindLabelItalian,
+  shiftItemSourceLabelItalian,
 } from "@/lib/domain/monthly-shifts";
 import { formatDateItalian } from "@/lib/domain/leave-request-shared";
 import { Button } from "@/components/ui/button";
@@ -53,6 +55,93 @@ function countAssigned(rows: ShiftItemRow[]) {
   return { a, t };
 }
 
+type SalaLocationOption = { id: string; name: string };
+
+function AddPlanningSalaSlotRow({
+  planId,
+  shiftDate,
+  period,
+  yearMonth,
+  locations,
+}: {
+  planId: string;
+  shiftDate: string;
+  period: "mattina" | "pomeriggio";
+  yearMonth: string;
+  locations: SalaLocationOption[];
+}) {
+  const router = useRouter();
+  const [locationId, setLocationId] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [inlineError, setInlineError] = useState<string | null>(null);
+
+  const btnLabel =
+    period === "mattina" ? "Aggiungi sala al mattino" : "Aggiungi sala al pomeriggio";
+
+  const onAdd = async () => {
+    if (!locationId) return;
+    setBusy(true);
+    setInlineError(null);
+    const res = await addPlanningSlotAction({
+      planId,
+      date: shiftDate,
+      period,
+      clinicalLocationId: locationId,
+      month: yearMonth,
+    });
+    setBusy(false);
+    if (!res.ok) {
+      setInlineError(res.error);
+      return;
+    }
+    setLocationId("");
+    router.refresh();
+  };
+
+  if (locations.length === 0) {
+    return (
+      <p className="mt-2 text-[0.7rem] text-muted-foreground">
+        Nessuna sala operatoria in anagrafica. Aggiungi sale da «Gestisci sale».
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-1 border-t border-dashed border-border/80 pt-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="sr-only" htmlFor={`add-sala-${shiftDate}-${period}`}>
+          Sala
+        </label>
+        <select
+          id={`add-sala-${shiftDate}-${period}`}
+          className="h-8 min-w-[12rem] max-w-full rounded-md border border-input bg-card px-2 text-xs"
+          disabled={busy}
+          value={locationId}
+          onChange={(e) => setLocationId(e.target.value)}
+        >
+          <option value="">Sala da aggiungere…</option>
+          {locations.map((loc) => (
+            <option key={loc.id} value={loc.id}>
+              {loc.name}
+            </option>
+          ))}
+        </select>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 shrink-0 text-xs"
+          disabled={busy || !locationId}
+          onClick={() => void onAdd()}
+        >
+          {busy ? "…" : btnLabel}
+        </Button>
+      </div>
+      {inlineError ? <p className="text-[0.7rem] text-rose-700">{inlineError}</p> : null}
+    </div>
+  );
+}
+
 type AssigneeOption = { id: string; full_name: string | null; email: string | null };
 
 function personLabel(people: AssigneeOption[], id: string | null) {
@@ -76,6 +165,8 @@ type TurniMonthViewProps = {
   currentUserRole: "specializzando" | "tutor" | "admin";
   assigneeOptions: AssigneeOption[];
   changeLogs: PlanningChangeLogRow[];
+  /** Sale operatorie (`clinical_locations`) per aggiungi slot (solo admin dal server). */
+  salaLocationOptions?: SalaLocationOption[];
 };
 
 function TurniItemRow({
@@ -131,7 +222,7 @@ function TurniItemRow({
           </p>
         ) : null}
         <p className="text-[0.7rem] uppercase text-muted-foreground/90">
-          {shiftItemKindLabelItalian(item.kind)} · {item.source === "excel" ? "Excel" : "Generato"}
+          {shiftItemKindLabelItalian(item.kind)} · {shiftItemSourceLabelItalian(item.source)}
         </p>
         {isConflictHighlight ? (
           <p className="text-[0.7rem] text-rose-800 dark:text-rose-200/90" title="Vincolo stesso giorno / stessa persona">
@@ -189,6 +280,7 @@ function BlockSection({
   blockId,
   rowErrors,
   conflictItemIds,
+  addSalaSlot,
 }: {
   title: string;
   timeHint?: string;
@@ -203,6 +295,13 @@ function BlockSection({
   blockId: string;
   rowErrors: Record<string, string>;
   conflictItemIds: string[];
+  addSalaSlot?: {
+    planId: string;
+    shiftDate: string;
+    yearMonth: string;
+    period: "mattina" | "pomeriggio";
+    locations: SalaLocationOption[];
+  } | null;
 }) {
   const conflictSet = useMemo(() => new Set(conflictItemIds), [conflictItemIds]);
   const h = useId();
@@ -244,6 +343,15 @@ function BlockSection({
           ))}
         </div>
       )}
+      {addSalaSlot ? (
+        <AddPlanningSalaSlotRow
+          planId={addSalaSlot.planId}
+          shiftDate={addSalaSlot.shiftDate}
+          period={addSalaSlot.period}
+          yearMonth={addSalaSlot.yearMonth}
+          locations={addSalaSlot.locations}
+        />
+      ) : null}
     </div>
   );
 }
@@ -259,6 +367,7 @@ function DayCard({
   onAssignItem,
   rowErrors,
   conflictItemIds,
+  salaPlanningAdd,
 }: {
   date: string;
   items: ShiftItemRow[];
@@ -270,8 +379,29 @@ function DayCard({
   onAssignItem: (itemId: string, userId: string | null) => void;
   rowErrors: Record<string, string>;
   conflictItemIds: string[];
+  /** Aggiungi slot sala (admin): mattina/pomeriggio dall’anagrafica sale. */
+  salaPlanningAdd?: { planId: string; yearMonth: string; locations: SalaLocationOption[] } | null;
 }) {
   const g = splitByBlock(items);
+  const addMattina = salaPlanningAdd
+    ? {
+        planId: salaPlanningAdd.planId,
+        yearMonth: salaPlanningAdd.yearMonth,
+        shiftDate: date,
+        period: "mattina" as const,
+        locations: salaPlanningAdd.locations,
+      }
+    : null;
+  const addPomeriggio = salaPlanningAdd
+    ? {
+        planId: salaPlanningAdd.planId,
+        yearMonth: salaPlanningAdd.yearMonth,
+        shiftDate: date,
+        period: "pomeriggio" as const,
+        locations: salaPlanningAdd.locations,
+      }
+    : null;
+
   return (
     <Card title={formatDateItalian(date)} className="p-0">
       <div className="mt-0 space-y-4">
@@ -289,6 +419,7 @@ function DayCard({
           blockId={`${date}-mattina-empty`}
           rowErrors={rowErrors}
           conflictItemIds={conflictItemIds}
+          addSalaSlot={addMattina}
         />
         <BlockSection
           title="Pomeriggio"
@@ -304,6 +435,7 @@ function DayCard({
           blockId={`${date}-pom-empty`}
           rowErrors={rowErrors}
           conflictItemIds={conflictItemIds}
+          addSalaSlot={addPomeriggio}
         />
         <BlockSection
           title="Ambulatorio"
@@ -360,6 +492,7 @@ export function TurniMonthView({
   currentUserRole,
   assigneeOptions,
   changeLogs,
+  salaLocationOptions = [],
 }: TurniMonthViewProps) {
   const router = useRouter();
   const [assignError, setAssignError] = useState<string | null>(null);
@@ -449,6 +582,11 @@ export function TurniMonthView({
   );
 
   const userFilterValue = viewFilter.kind === "user" ? viewFilter.id : "";
+
+  const salaPlanningAdd = useMemo(() => {
+    if (!isAdmin || planIsApproved) return null;
+    return { planId: plan.id, yearMonth, locations: salaLocationOptions };
+  }, [isAdmin, planIsApproved, plan.id, yearMonth, salaLocationOptions]);
 
   return (
     <div className="space-y-6">
@@ -613,6 +751,7 @@ export function TurniMonthView({
               onAssignItem={onAssignItem}
               rowErrors={rowErrors}
               conflictItemIds={conflictItemIds}
+              salaPlanningAdd={salaPlanningAdd}
             />
           ))
         )}

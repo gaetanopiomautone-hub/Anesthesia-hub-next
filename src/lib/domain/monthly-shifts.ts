@@ -6,7 +6,7 @@ export type ShiftItemKind = "sala" | "ambulatorio" | "reperibilita";
 
 export type ShiftItemPeriod = "mattina" | "pomeriggio" | "giornata" | "reperibilita";
 
-export type ShiftItemSource = "excel" | "generated";
+export type ShiftItemSource = "excel" | "generated" | "manual";
 
 export type MonthlyShiftPlanRow = {
   id: string;
@@ -62,6 +62,17 @@ export function shiftItemKindLabelItalian(k: ShiftItemKind) {
       return "Reperibilità";
     default:
       return k;
+  }
+}
+
+export function shiftItemSourceLabelItalian(s: ShiftItemSource) {
+  switch (s) {
+    case "excel":
+      return "Excel";
+    case "manual":
+      return "Manuale";
+    default:
+      return "Generato";
   }
 }
 
