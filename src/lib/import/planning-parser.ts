@@ -592,7 +592,7 @@ function inferDateWindowFromSheetName(
 }
 
 function inferSheetMonthFromName(sheetName: string): number | null {
-  const normalized = normalizeText(sheetName).replace(/[.\-_/]/g, " ");
+  const normalized = normalizeText(sheetName).replace(/[^a-z0-9]/g, " ");
   const tokens = normalized.split(/\s+/).filter(Boolean);
   for (const token of tokens) {
     const monthId = findItalianMonthId(token);
@@ -688,10 +688,45 @@ function parseSalaFromRowLayoutMatrix(
     }
   }
 
+  // Fallback: alcuni export non hanno "lunedì/martedì" ma solo date spezzate/numero giorno in header.
+  if (!dayColumns.length) {
+    for (let c = 2; c < maxCol; c++) {
+      let ymd: string | null = null;
+      let isTech = false;
+      for (let r = 0; r < Math.min(m.length, 20); r++) {
+        const txt = m[r]?.[c] ?? "";
+        const n = normalizeText(txt);
+        if (n.includes("tecnico")) {
+          isTech = true;
+          break;
+        }
+        const strict = parseYmdFromBlockDayHeader(txt, raw[r]?.[c], year, month);
+        if (strict) {
+          ymd = strict;
+          break;
+        }
+        if (allowLooseHeaderFallback) {
+          const loose = parseYmdFromHeaderLoose(txt, year, month);
+          if (loose) {
+            ymd = loose;
+            break;
+          }
+        }
+      }
+      if (isTech || !ymd) continue;
+      dayColumns.push({ col: c, ymd });
+    }
+  }
+
   // Strict mode: usa SOLO date esplicite in header colonna.
   // Niente fallback weekday -> evita buchi/misallineamenti da offset.
 
   if (!dayColumns.length) {
+    console.warn("NO DAY COLUMNS DETECTED", {
+      sheetName: sheetName ?? "(unknown)",
+      inferredMonth: sheetName ? inferSheetMonthFromName(sheetName) : null,
+      weekdayHints: weekdayHints.length,
+    });
     // detection row-based: almeno sala + orario presente, anche se giorni non mappati.
     for (let r = 0; r < m.length; r++) {
       if (isSalaRowId(m[r]?.[0] ?? "") && parsePeriodFromTimeCell(m[r]?.[1] ?? "")) {
