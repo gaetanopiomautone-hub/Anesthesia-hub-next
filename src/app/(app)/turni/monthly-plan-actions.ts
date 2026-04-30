@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
 import { parseISO, isValid } from "date-fns";
@@ -19,7 +20,7 @@ import {
   reopenMonthlyPlan,
 } from "@/lib/data/monthly-shift-plans";
 import { insertPlanningChangeLogs } from "@/lib/data/planning-change-log";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getSupabaseEnv } from "@/lib/supabase/env";
 
 const yearMonthSchema = z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/);
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -29,6 +30,15 @@ const SALA_MATTINA_START = "08:00:00";
 const SALA_MATTINA_END = "14:00:00";
 const SALA_POMERIGGIO_START = "14:00:00";
 const SALA_POMERIGGIO_END = "20:00:00";
+
+function createServiceRoleSupabaseClient() {
+  const { url } = getSupabaseEnv();
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!serviceRoleKey) {
+    throw new Error("Missing environment variable: SUPABASE_SERVICE_ROLE_KEY");
+  }
+  return createClient(url, serviceRoleKey);
+}
 
 function withQuery(month: string, extra: Record<string, string>) {
   yearMonthSchema.parse(month);
@@ -172,11 +182,29 @@ export async function addPlanningSlotAction(
       return fail("Solo gli amministratori possono aggiungere slot sala al piano.");
     }
 
-    const plan = await getMonthlyShiftPlanById(planId);
-    if (!plan) {
+    const supabaseAdmin = createServiceRoleSupabaseClient();
+    const { data: planRaw, error: planErr } = await supabaseAdmin
+      .from("monthly_shift_plans")
+      .select("id,year,month,status")
+      .eq("id", planId)
+      .maybeSingle();
+    if (planErr) {
+      return fail(humanizePostgrestRlsError(planErr.message));
+    }
+    if (!planRaw) {
       return fail("Piano non trovato.");
     }
-    const planRow = plan as NonNullable<typeof plan>;
+    const planRow = planRaw as { id: string; year: number; month: number; status: string };
+    // eslint-disable-next-line no-console -- debug temporaneo produzione
+    console.log("PLAN DEBUG", {
+      id: planRow.id,
+      status: planRow.status,
+      year: planRow.year,
+      month: planRow.month,
+      requestedMonth: month,
+      actorRole: profile.role,
+      actorId: profile.id,
+    });
     if (planRow.status === "approved") {
       return fail("Il piano è approvato: non puoi aggiungere slot.");
     }
@@ -189,11 +217,9 @@ export async function addPlanningSlotAction(
       return fail("La data deve appartenere al mese del piano.");
     }
 
-    const supabase = await createServerSupabaseClient();
-
     const slotRoomName = roomName.length > 0 ? roomName : null;
 
-    const { data: dup, error: dupErr } = await supabase
+    const { data: dup, error: dupErr } = await supabaseAdmin
       .from("shift_items")
       .select("id")
       .eq("plan_id", planId)
@@ -204,6 +230,17 @@ export async function addPlanningSlotAction(
       .maybeSingle();
 
     if (dupErr) {
+      // eslint-disable-next-line no-console -- debug temporaneo produzione
+      console.error("add_planning_slot duplicate check failed", {
+        planId,
+        date,
+        period: periodParsed,
+        specialty,
+        message: dupErr.message,
+        code: dupErr.code,
+        details: dupErr.details,
+        hint: dupErr.hint,
+      });
       return fail(humanizePostgrestRlsError(dupErr.message));
     }
     if (dup) {
@@ -215,7 +252,7 @@ export async function addPlanningSlotAction(
         ? { start_time: SALA_MATTINA_START, end_time: SALA_MATTINA_END }
         : { start_time: SALA_POMERIGGIO_START, end_time: SALA_POMERIGGIO_END };
 
-    const { data: inserted, error: insErr } = await supabase
+    const { data: inserted, error: insErr } = await supabaseAdmin
       .from("shift_items")
       .insert({
         plan_id: planId,
@@ -233,6 +270,20 @@ export async function addPlanningSlotAction(
       .single();
 
     if (insErr) {
+      // eslint-disable-next-line no-console -- debug temporaneo produzione
+      console.error("add_planning_slot insert failed", {
+        planId,
+        date,
+        period: periodParsed,
+        specialty,
+        roomName: slotRoomName,
+        actorRole: profile.role,
+        actorId: profile.id,
+        message: insErr.message,
+        code: insErr.code,
+        details: insErr.details,
+        hint: insErr.hint,
+      });
       return fail(humanizePostgrestRlsError(insErr.message));
     }
     if (!inserted) {
