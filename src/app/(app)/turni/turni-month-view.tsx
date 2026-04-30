@@ -58,9 +58,9 @@ function countAssigned(rows: ShiftItemRow[]) {
 type SalaAddOption = {
   key: string;
   name: string;
-  clinicalLocationId: string | null;
+  specialty: string;
   roomName: string | null;
-  source: "planning" | "anagrafica";
+  source: "planning";
 };
 
 function AddPlanningSalaSlotRow({
@@ -84,7 +84,7 @@ function AddPlanningSalaSlotRow({
   if (locations.length === 0) {
     return (
       <p className="mt-2 text-[0.7rem] text-muted-foreground">
-        Nessuna sala operatoria in anagrafica. Aggiungi sale da «Gestisci sale».
+        Nessuna specialita sala trovata nel planning corrente.
       </p>
     );
   }
@@ -97,8 +97,8 @@ function AddPlanningSalaSlotRow({
       <input type="hidden" name="month" value={yearMonth} />
       <input
         type="hidden"
-        name="clinicalLocationId"
-        value={locations.find((o) => o.key === selectedOptionKey)?.clinicalLocationId ?? ""}
+        name="specialty"
+        value={locations.find((o) => o.key === selectedOptionKey)?.specialty ?? ""}
       />
       <input
         type="hidden"
@@ -510,7 +510,8 @@ export function TurniMonthView({
         typeof r.key === "string" &&
         r.key.length > 0 &&
         typeof r.name === "string" &&
-        (r.clinicalLocationId === null || typeof r.clinicalLocationId === "string") &&
+        typeof r.specialty === "string" &&
+        r.specialty.length > 0 &&
         (r.roomName === null || typeof r.roomName === "string"),
     );
   }, [salaLocationOptions]);

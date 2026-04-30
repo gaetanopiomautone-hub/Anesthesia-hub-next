@@ -135,7 +135,7 @@ export async function addPlanningSlotAction(formData: FormData) {
   const planId = String(formData.get("planId") ?? "");
   const date = String(formData.get("date") ?? "");
   const period = String(formData.get("period") ?? "");
-  const clinicalLocationId = String(formData.get("clinicalLocationId") ?? "");
+  const specialty = String(formData.get("specialty") ?? "").trim();
   const roomName = String(formData.get("roomName") ?? "").trim();
   const month = String(formData.get("month") ?? "");
 
@@ -149,7 +149,7 @@ export async function addPlanningSlotAction(formData: FormData) {
     planId,
     date,
     period,
-    clinicalLocationId,
+    specialty,
     roomName,
     month,
     role: profile.role,
@@ -161,14 +161,8 @@ export async function addPlanningSlotAction(formData: FormData) {
     isoDateSchema.parse(date);
     z.string().uuid().parse(planId);
     const periodParsed = z.enum(["mattina", "pomeriggio"]).parse(period);
-    const hasClinicalLocationId = Boolean(clinicalLocationId);
-    const hasRoomName = roomName.length > 0;
-
-    if (!hasClinicalLocationId && !hasRoomName) {
-      fail("Seleziona una sala prima di aggiungere lo slot.");
-    }
-    if (hasClinicalLocationId) {
-      z.string().uuid().parse(clinicalLocationId);
+    if (!specialty) {
+      fail("Seleziona una specialita prima di aggiungere lo slot.");
     }
 
     if (profile.role !== "admin") {
@@ -194,33 +188,7 @@ export async function addPlanningSlotAction(formData: FormData) {
 
     const supabase = await createServerSupabaseClient();
 
-    let slotRoomName = roomName;
-    if (hasClinicalLocationId) {
-      const { data: locRaw, error: locErr } = await supabase
-        .from("clinical_locations")
-        .select("id,name,area_type,is_active")
-        .eq("id", clinicalLocationId)
-        .maybeSingle();
-
-      if (locErr) {
-        fail(humanizePostgrestRlsError(locErr.message));
-      }
-
-      const loc = locRaw as
-        | {
-            id: string;
-            name: string;
-            area_type: "sala_operatoria" | "rianimazione";
-            is_active: boolean;
-          }
-        | null;
-
-      if (!loc || !loc.is_active || loc.area_type !== "sala_operatoria") {
-        fail("La sala selezionata non è disponibile come sala operatoria attiva.");
-      }
-      const locRow = loc as NonNullable<typeof loc>;
-      slotRoomName = locRow.name;
-    }
+    const slotRoomName = roomName.length > 0 ? roomName : null;
 
     const { data: dup, error: dupErr } = await supabase
       .from("shift_items")
@@ -229,7 +197,7 @@ export async function addPlanningSlotAction(formData: FormData) {
       .eq("shift_date", date)
       .eq("kind", "sala")
       .eq("period", periodParsed)
-      .eq("room_name", slotRoomName)
+      .eq("label", specialty)
       .maybeSingle();
 
     if (dupErr) {
@@ -253,9 +221,9 @@ export async function addPlanningSlotAction(formData: FormData) {
         period: periodParsed,
         start_time: start_end.start_time,
         end_time: start_end.end_time,
-        label: slotRoomName,
+        label: specialty,
         room_name: slotRoomName,
-        specialty: null,
+        specialty,
         source: "manual",
       })
       .select("id")
@@ -279,6 +247,7 @@ export async function addPlanningSlotAction(formData: FormData) {
           after_data: {
             shift_date: date,
             period: periodParsed,
+            specialty,
             room_name: slotRoomName,
             kind: "sala",
             source: "manual",

@@ -4,7 +4,6 @@ import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { requireSection } from "@/lib/auth/get-current-user-profile";
-import { listActiveSalaOperatoriaLocations } from "@/lib/data/clinical-locations";
 import { listPlanningChangeLogsByPlanId } from "@/lib/data/planning-change-log";
 import { getMonthlyShiftPlanByYearMonth, listShiftItemsByPlanId } from "@/lib/data/monthly-shift-plans";
 import { listAssignableUsers } from "@/lib/data/shifts";
@@ -22,6 +21,22 @@ type TurniPageProps = {
   }>;
 };
 
+function normalizeKey(text: string) {
+  return text.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+function extractPlanningSpecialty(item: { specialty: string | null; room_name: string | null; label: string }) {
+  const s = item.specialty?.trim();
+  if (s) return s;
+  const label = item.label?.trim() ?? "";
+  const room = item.room_name?.trim() ?? "";
+  if (!label) return "";
+  if (!room) return label;
+  if (!label.toLowerCase().startsWith(room.toLowerCase())) return label;
+  const tail = label.slice(room.length).replace(/^[-–—|:/\s]+/, "").trim();
+  return tail || label;
+}
+
 export default async function TurniPage({ searchParams }: TurniPageProps) {
   const profile = await requireSection("turni");
   const params = (await searchParams) ?? {};
@@ -38,56 +53,31 @@ export default async function TurniPage({ searchParams }: TurniPageProps) {
   const items = plan ? await listShiftItemsByPlanId(plan.id) : [];
   const changeLogs = plan && profile.role === "admin" ? await listPlanningChangeLogsByPlanId(plan.id, 250) : [];
   const assigneeOptions = await listAssignableUsers();
-  const salaLocationOptions = profile.role === "admin" ? await listActiveSalaOperatoriaLocations() : [];
-
-  const normalizedSalaKey = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
-  const planningSalaNames = new Set(
-    items
-      .filter((i) => i.kind === "sala")
-      .map((i) => (i.room_name?.trim() || i.label?.trim() || ""))
-      .filter((name) => name.length > 0)
-      .map(normalizedSalaKey),
-  );
-
-  const mergedSalaOptions = new Map<
+  const specialtyOptionsMap = new Map<
     string,
     {
       key: string;
       name: string;
-      clinicalLocationId: string | null;
+      specialty: string;
       roomName: string | null;
-      source: "planning" | "anagrafica";
+      source: "planning";
     }
   >();
-
-  for (const loc of salaLocationOptions) {
-    const normalized = normalizedSalaKey(loc.name);
-    if (!normalized) continue;
-    mergedSalaOptions.set(normalized, {
-      key: `loc:${loc.id}`,
-      name: loc.name,
-      clinicalLocationId: loc.id,
-      roomName: loc.name,
-      source: "anagrafica",
-    });
-  }
-  for (const normalized of planningSalaNames) {
-    if (mergedSalaOptions.has(normalized)) continue;
-    const displayName =
-      items.find((i) => i.kind === "sala" && normalizedSalaKey(i.room_name?.trim() || i.label?.trim() || "") === normalized)
-        ?.room_name?.trim() ||
-      items.find((i) => i.kind === "sala" && normalizedSalaKey(i.room_name?.trim() || i.label?.trim() || "") === normalized)
-        ?.label?.trim() ||
-      normalized;
-    mergedSalaOptions.set(normalized, {
-      key: `room:${normalized}`,
-      name: displayName,
-      clinicalLocationId: null,
-      roomName: displayName,
+  for (const item of items) {
+    if (item.kind !== "sala") continue;
+    const specialty = extractPlanningSpecialty(item);
+    if (!specialty) continue;
+    const n = normalizeKey(specialty);
+    if (specialtyOptionsMap.has(n)) continue;
+    specialtyOptionsMap.set(n, {
+      key: `spec:${n}`,
+      name: specialty,
+      specialty,
+      roomName: item.room_name?.trim() || null,
       source: "planning",
     });
   }
-  const finalSalaOptions = Array.from(mergedSalaOptions.values()).sort((a, b) => a.name.localeCompare(b.name, "it"));
+  const finalSalaOptions = Array.from(specialtyOptionsMap.values()).sort((a, b) => a.name.localeCompare(b.name, "it"));
 
   return (
     <div className="space-y-6">
