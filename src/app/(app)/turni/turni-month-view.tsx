@@ -70,33 +70,10 @@ function AddPlanningSalaSlotRow({
   yearMonth: string;
   locations: SalaLocationOption[];
 }) {
-  const router = useRouter();
   const [locationId, setLocationId] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [inlineError, setInlineError] = useState<string | null>(null);
 
   const btnLabel =
     period === "mattina" ? "Aggiungi sala al mattino" : "Aggiungi sala al pomeriggio";
-
-  const onAdd = async () => {
-    if (!locationId) return;
-    setBusy(true);
-    setInlineError(null);
-    const res = await addPlanningSlotAction({
-      planId,
-      date: shiftDate,
-      period,
-      clinicalLocationId: locationId,
-      month: yearMonth,
-    });
-    setBusy(false);
-    if (!res.ok) {
-      setInlineError(res.error);
-      return;
-    }
-    setLocationId("");
-    router.refresh();
-  };
 
   if (locations.length === 0) {
     return (
@@ -107,15 +84,19 @@ function AddPlanningSalaSlotRow({
   }
 
   return (
-    <div className="mt-2 space-y-1 border-t border-dashed border-border/80 pt-2">
+    <form action={addPlanningSlotAction} className="mt-2 space-y-1 border-t border-dashed border-border/80 pt-2">
+      <input type="hidden" name="planId" value={planId} />
+      <input type="hidden" name="date" value={shiftDate} />
+      <input type="hidden" name="period" value={period} />
+      <input type="hidden" name="month" value={yearMonth} />
       <div className="flex flex-wrap items-center gap-2">
         <label className="sr-only" htmlFor={`add-sala-${shiftDate}-${period}`}>
           Sala
         </label>
         <select
           id={`add-sala-${shiftDate}-${period}`}
+          name="clinicalLocationId"
           className="h-8 min-w-[12rem] max-w-full rounded-md border border-input bg-card px-2 text-xs"
-          disabled={busy}
           value={locationId}
           onChange={(e) => setLocationId(e.target.value)}
         >
@@ -127,18 +108,16 @@ function AddPlanningSalaSlotRow({
           ))}
         </select>
         <Button
-          type="button"
+          type="submit"
           variant="outline"
           size="sm"
           className="h-8 shrink-0 text-xs"
-          disabled={busy || !locationId}
-          onClick={() => void onAdd()}
+          disabled={!locationId}
         >
-          {busy ? "…" : btnLabel}
+          {btnLabel}
         </Button>
       </div>
-      {inlineError ? <p className="text-[0.7rem] text-rose-700">{inlineError}</p> : null}
-    </div>
+    </form>
   );
 }
 

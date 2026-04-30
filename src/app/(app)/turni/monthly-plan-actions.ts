@@ -126,47 +126,60 @@ export async function assignShiftItemAction(input: AssignShiftItemInput): Promis
   }
 }
 
-export type AddPlanningSlotInput = {
-  planId: string;
-  date: string;
-  period: "mattina" | "pomeriggio";
-  clinicalLocationId: string;
-  month: string;
-};
-
-export type AddPlanningSlotResult = { ok: true } | { ok: false; error: string };
-
 /**
  * Aggiunge una riga `shift_items` (sala) per giorno + mattina/pomeriggio usando `clinical_locations`.
  * RLS: insert solo admin.
  */
-export async function addPlanningSlotAction(input: AddPlanningSlotInput): Promise<AddPlanningSlotResult> {
+export async function addPlanningSlotAction(formData: FormData) {
   const profile = await requireUser();
+  const planId = String(formData.get("planId") ?? "");
+  const date = String(formData.get("date") ?? "");
+  const period = String(formData.get("period") ?? "");
+  const clinicalLocationId = String(formData.get("clinicalLocationId") ?? "");
+  const month = String(formData.get("month") ?? "");
+
+  if (!yearMonthSchema.safeParse(month).success) {
+    redirect("/turni");
+  }
+
+  // Debug temporaneo per verificare trigger server action da UI.
+  // eslint-disable-next-line no-console
+  console.log("🔥 ADD SALA TRIGGERED", {
+    planId,
+    date,
+    period,
+    clinicalLocationId,
+    month,
+    role: profile.role,
+  });
+
+  const fail = (message: string): never => redirect(withQuery(month, { error: message }));
+
   try {
-    yearMonthSchema.parse(input.month);
-    isoDateSchema.parse(input.date);
-    z.string().uuid().parse(input.planId);
-    z.string().uuid().parse(input.clinicalLocationId);
-    const periodParsed = z.enum(["mattina", "pomeriggio"]).parse(input.period);
+    isoDateSchema.parse(date);
+    z.string().uuid().parse(planId);
+    z.string().uuid().parse(clinicalLocationId);
+    const periodParsed = z.enum(["mattina", "pomeriggio"]).parse(period);
 
     if (profile.role !== "admin") {
-      return { ok: false, error: "Solo gli amministratori possono aggiungere slot sala al piano." };
+      fail("Solo gli amministratori possono aggiungere slot sala al piano.");
     }
 
-    const plan = await getMonthlyShiftPlanById(input.planId);
+    const plan = await getMonthlyShiftPlanById(planId);
     if (!plan) {
-      return { ok: false, error: "Piano non trovato." };
+      fail("Piano non trovato.");
     }
-    if (plan.status === "approved") {
-      return { ok: false, error: "Il piano è approvato: non puoi aggiungere slot." };
+    const planRow = plan as NonNullable<typeof plan>;
+    if (planRow.status === "approved") {
+      fail("Il piano è approvato: non puoi aggiungere slot.");
     }
 
-    const dateObj = parseISO(input.date);
+    const dateObj = parseISO(date);
     if (!isValid(dateObj)) {
-      return { ok: false, error: "Data non valida." };
+      fail("Data non valida.");
     }
-    if (dateObj.getFullYear() !== plan.year || dateObj.getMonth() + 1 !== plan.month) {
-      return { ok: false, error: "La data deve appartenere al mese del piano." };
+    if (dateObj.getFullYear() !== planRow.year || dateObj.getMonth() + 1 !== planRow.month) {
+      fail("La data deve appartenere al mese del piano.");
     }
 
     const supabase = await createServerSupabaseClient();
@@ -174,11 +187,11 @@ export async function addPlanningSlotAction(input: AddPlanningSlotInput): Promis
     const { data: locRaw, error: locErr } = await supabase
       .from("clinical_locations")
       .select("id,name,area_type,is_active")
-      .eq("id", input.clinicalLocationId)
+      .eq("id", clinicalLocationId)
       .maybeSingle();
 
     if (locErr) {
-      return { ok: false, error: humanizePostgrestRlsError(locErr.message) };
+      fail(humanizePostgrestRlsError(locErr.message));
     }
 
     const loc = locRaw as
@@ -191,30 +204,25 @@ export async function addPlanningSlotAction(input: AddPlanningSlotInput): Promis
       | null;
 
     if (!loc || !loc.is_active || loc.area_type !== "sala_operatoria") {
-      return {
-        ok: false,
-        error: "La sala selezionata non è disponibile come sala operatoria attiva.",
-      };
+      fail("La sala selezionata non è disponibile come sala operatoria attiva.");
     }
+    const locRow = loc as NonNullable<typeof loc>;
 
     const { data: dup, error: dupErr } = await supabase
       .from("shift_items")
       .select("id")
-      .eq("plan_id", input.planId)
-      .eq("shift_date", input.date)
+      .eq("plan_id", planId)
+      .eq("shift_date", date)
       .eq("kind", "sala")
       .eq("period", periodParsed)
-      .eq("room_name", loc.name)
+      .eq("room_name", locRow.name)
       .maybeSingle();
 
     if (dupErr) {
-      return { ok: false, error: humanizePostgrestRlsError(dupErr.message) };
+      fail(humanizePostgrestRlsError(dupErr.message));
     }
     if (dup) {
-      return {
-        ok: false,
-        error: "Questa sala è già presente per questo giorno e fascia oraria.",
-      };
+      fail("Questa sala è già presente per questo giorno e fascia oraria.");
     }
 
     const start_end =
@@ -225,14 +233,14 @@ export async function addPlanningSlotAction(input: AddPlanningSlotInput): Promis
     const { data: inserted, error: insErr } = await supabase
       .from("shift_items")
       .insert({
-        plan_id: input.planId,
-        shift_date: input.date,
+        plan_id: planId,
+        shift_date: date,
         kind: "sala",
         period: periodParsed,
         start_time: start_end.start_time,
         end_time: start_end.end_time,
-        label: loc.name,
-        room_name: loc.name,
+        label: locRow.name,
+        room_name: locRow.name,
         specialty: null,
         source: "manual",
       })
@@ -240,24 +248,24 @@ export async function addPlanningSlotAction(input: AddPlanningSlotInput): Promis
       .single();
 
     if (insErr) {
-      return { ok: false, error: humanizePostgrestRlsError(insErr.message) };
+      fail(humanizePostgrestRlsError(insErr.message));
     }
     if (!inserted) {
-      return { ok: false, error: "Inserimento non riuscito." };
+      fail("Inserimento non riuscito.");
     }
 
     try {
       await insertPlanningChangeLogs([
         {
-          planning_month_id: input.planId,
+          planning_month_id: planId,
           shift_id: String((inserted as { id: string }).id),
           actor_user_id: profile.id,
           action: "created",
           before_data: null,
           after_data: {
-            shift_date: input.date,
+            shift_date: date,
             period: periodParsed,
-            room_name: loc.name,
+            room_name: locRow.name,
             kind: "sala",
             source: "manual",
           },
@@ -266,18 +274,18 @@ export async function addPlanningSlotAction(input: AddPlanningSlotInput): Promis
     } catch (auditError) {
       // eslint-disable-next-line no-console
       console.error("add_planning_slot audit failed", {
-        planId: input.planId,
+        planId,
         message: auditError instanceof Error ? auditError.message : String(auditError),
       });
     }
 
     revalidatePath("/turni");
-    return { ok: true };
+    redirect(withQuery(month, { ok: "slot_added" }));
   } catch (e) {
     if (e instanceof z.ZodError) {
-      return { ok: false, error: "Valore non valido" };
+      fail("Valore non valido");
     }
-    return { ok: false, error: e instanceof Error ? humanizePostgrestRlsError(e.message) : "Errore imprevisto" };
+    fail(e instanceof Error ? humanizePostgrestRlsError(e.message) : "Errore imprevisto");
   }
 }
 
