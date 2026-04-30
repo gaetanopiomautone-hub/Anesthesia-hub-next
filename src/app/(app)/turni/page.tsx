@@ -190,22 +190,6 @@ export default async function TurniPage({ searchParams }: TurniPageProps) {
             changeLogs={changeLogs}
             salaLocationOptions={finalSalaOptions}
           />
-          {profile.role === "admin" ? (
-            <pre className="mt-4 rounded border bg-yellow-50 p-3 text-xs text-black">
-              {JSON.stringify(
-                {
-                  role: profile.role,
-                  saleCount: finalSalaOptions.length,
-                  saleNames: finalSalaOptions.map((s) => s.name),
-                  planStatus: plan.status,
-                  isApproved: plan.status === "approved",
-                  month: yearMonth,
-                },
-                null,
-                2,
-              )}
-            </pre>
-          ) : null}
         </section>
       )}
     </div>
