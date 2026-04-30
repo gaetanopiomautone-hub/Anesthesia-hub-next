@@ -92,6 +92,11 @@ export default async function TurniPage({ searchParams }: TurniPageProps) {
           Piano mese riaperto: ora è di nuovo in bozza.
         </div>
       ) : null}
+      {params.ok === "slot_added" ? (
+        <div role="status" className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900">
+          Slot sala aggiunto correttamente al planning.
+        </div>
+      ) : null}
 
       {!plan ? (
         <Card
