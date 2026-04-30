@@ -38,8 +38,56 @@ export default async function TurniPage({ searchParams }: TurniPageProps) {
   const items = plan ? await listShiftItemsByPlanId(plan.id) : [];
   const changeLogs = plan && profile.role === "admin" ? await listPlanningChangeLogsByPlanId(plan.id, 250) : [];
   const assigneeOptions = await listAssignableUsers();
-  const salaLocationOptions =
-    profile.role === "admin" ? await listActiveSalaOperatoriaLocations() : [];
+  const salaLocationOptions = profile.role === "admin" ? await listActiveSalaOperatoriaLocations() : [];
+
+  const normalizedSalaKey = (name: string) => name.trim().toLowerCase().replace(/\s+/g, " ");
+  const planningSalaNames = new Set(
+    items
+      .filter((i) => i.kind === "sala")
+      .map((i) => (i.room_name?.trim() || i.label?.trim() || ""))
+      .filter((name) => name.length > 0)
+      .map(normalizedSalaKey),
+  );
+
+  const mergedSalaOptions = new Map<
+    string,
+    {
+      key: string;
+      name: string;
+      clinicalLocationId: string | null;
+      roomName: string | null;
+      source: "planning" | "anagrafica";
+    }
+  >();
+
+  for (const loc of salaLocationOptions) {
+    const normalized = normalizedSalaKey(loc.name);
+    if (!normalized) continue;
+    mergedSalaOptions.set(normalized, {
+      key: `loc:${loc.id}`,
+      name: loc.name,
+      clinicalLocationId: loc.id,
+      roomName: loc.name,
+      source: "anagrafica",
+    });
+  }
+  for (const normalized of planningSalaNames) {
+    if (mergedSalaOptions.has(normalized)) continue;
+    const displayName =
+      items.find((i) => i.kind === "sala" && normalizedSalaKey(i.room_name?.trim() || i.label?.trim() || "") === normalized)
+        ?.room_name?.trim() ||
+      items.find((i) => i.kind === "sala" && normalizedSalaKey(i.room_name?.trim() || i.label?.trim() || "") === normalized)
+        ?.label?.trim() ||
+      normalized;
+    mergedSalaOptions.set(normalized, {
+      key: `room:${normalized}`,
+      name: displayName,
+      clinicalLocationId: null,
+      roomName: displayName,
+      source: "planning",
+    });
+  }
+  const finalSalaOptions = Array.from(mergedSalaOptions.values()).sort((a, b) => a.name.localeCompare(b.name, "it"));
 
   return (
     <div className="space-y-6">
@@ -140,15 +188,15 @@ export default async function TurniPage({ searchParams }: TurniPageProps) {
             currentUserRole={profile.role}
             assigneeOptions={assigneeOptions}
             changeLogs={changeLogs}
-            salaLocationOptions={salaLocationOptions}
+            salaLocationOptions={finalSalaOptions}
           />
           {profile.role === "admin" ? (
             <pre className="mt-4 rounded border bg-yellow-50 p-3 text-xs text-black">
               {JSON.stringify(
                 {
                   role: profile.role,
-                  saleCount: salaLocationOptions.length,
-                  saleNames: salaLocationOptions.map((s) => s.name),
+                  saleCount: finalSalaOptions.length,
+                  saleNames: finalSalaOptions.map((s) => s.name),
                   planStatus: plan.status,
                   isApproved: plan.status === "approved",
                   month: yearMonth,

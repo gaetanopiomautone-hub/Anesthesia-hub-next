@@ -55,7 +55,13 @@ function countAssigned(rows: ShiftItemRow[]) {
   return { a, t };
 }
 
-type SalaLocationOption = { id: string; name: string };
+type SalaAddOption = {
+  key: string;
+  name: string;
+  clinicalLocationId: string | null;
+  roomName: string | null;
+  source: "planning" | "anagrafica";
+};
 
 function AddPlanningSalaSlotRow({
   planId,
@@ -68,9 +74,9 @@ function AddPlanningSalaSlotRow({
   shiftDate: string;
   period: "mattina" | "pomeriggio";
   yearMonth: string;
-  locations: SalaLocationOption[];
+  locations: SalaAddOption[];
 }) {
-  const [locationId, setLocationId] = useState("");
+  const [selectedOptionKey, setSelectedOptionKey] = useState("");
 
   const btnLabel =
     period === "mattina" ? "Aggiungi sala al mattino" : "Aggiungi sala al pomeriggio";
@@ -89,20 +95,29 @@ function AddPlanningSalaSlotRow({
       <input type="hidden" name="date" value={shiftDate} />
       <input type="hidden" name="period" value={period} />
       <input type="hidden" name="month" value={yearMonth} />
+      <input
+        type="hidden"
+        name="clinicalLocationId"
+        value={locations.find((o) => o.key === selectedOptionKey)?.clinicalLocationId ?? ""}
+      />
+      <input
+        type="hidden"
+        name="roomName"
+        value={locations.find((o) => o.key === selectedOptionKey)?.roomName ?? ""}
+      />
       <div className="flex flex-wrap items-center gap-2">
         <label className="sr-only" htmlFor={`add-sala-${shiftDate}-${period}`}>
           Sala
         </label>
         <select
           id={`add-sala-${shiftDate}-${period}`}
-          name="clinicalLocationId"
           className="h-8 min-w-[12rem] max-w-full rounded-md border border-input bg-card px-2 text-xs"
-          value={locationId}
-          onChange={(e) => setLocationId(e.target.value)}
+          value={selectedOptionKey}
+          onChange={(e) => setSelectedOptionKey(e.target.value)}
         >
           <option value="">Sala da aggiungere…</option>
           {locations.map((loc) => (
-            <option key={loc.id} value={loc.id}>
+            <option key={loc.key} value={loc.key}>
               {loc.name}
             </option>
           ))}
@@ -112,7 +127,7 @@ function AddPlanningSalaSlotRow({
           variant="outline"
           size="sm"
           className="h-8 shrink-0 text-xs"
-          disabled={!locationId}
+          disabled={!selectedOptionKey}
         >
           {btnLabel}
         </Button>
@@ -144,8 +159,8 @@ type TurniMonthViewProps = {
   currentUserRole: "specializzando" | "tutor" | "admin";
   assigneeOptions: AssigneeOption[];
   changeLogs: PlanningChangeLogRow[];
-  /** Sale operatorie (`clinical_locations`) per aggiungi slot (solo admin dal server). */
-  salaLocationOptions?: SalaLocationOption[];
+  /** Opzioni sala merge planning+anagrafica per aggiunta slot. */
+  salaLocationOptions?: SalaAddOption[];
 };
 
 function TurniItemRow({
@@ -279,7 +294,7 @@ function BlockSection({
     shiftDate: string;
     yearMonth: string;
     period: "mattina" | "pomeriggio";
-    locations: SalaLocationOption[];
+    locations: SalaAddOption[];
   } | null;
 }) {
   const conflictSet = useMemo(() => new Set(conflictItemIds), [conflictItemIds]);
@@ -359,7 +374,7 @@ function DayCard({
   rowErrors: Record<string, string>;
   conflictItemIds: string[];
   /** Aggiungi slot sala (admin): mattina/pomeriggio dall’anagrafica sale. */
-  salaPlanningAdd?: { planId: string; yearMonth: string; locations: SalaLocationOption[] } | null;
+  salaPlanningAdd?: { planId: string; yearMonth: string; locations: SalaAddOption[] } | null;
 }) {
   const g = splitByBlock(items);
   const addMattina = salaPlanningAdd
@@ -488,13 +503,15 @@ export function TurniMonthView({
   /** Opzioni sale serializzate dal server: normalizza per evitare select vuoto se props sono null/non-array. */
   const salaLocationsForPlanning = useMemo(() => {
     const raw = salaLocationOptions;
-    if (raw == null || !Array.isArray(raw)) return [] as SalaLocationOption[];
+    if (raw == null || !Array.isArray(raw)) return [] as SalaAddOption[];
     return raw.filter(
-      (r): r is SalaLocationOption =>
+      (r): r is SalaAddOption =>
         r != null &&
-        typeof r.id === "string" &&
-        r.id.length > 0 &&
-        typeof r.name === "string",
+        typeof r.key === "string" &&
+        r.key.length > 0 &&
+        typeof r.name === "string" &&
+        (r.clinicalLocationId === null || typeof r.clinicalLocationId === "string") &&
+        (r.roomName === null || typeof r.roomName === "string"),
     );
   }, [salaLocationOptions]);
 

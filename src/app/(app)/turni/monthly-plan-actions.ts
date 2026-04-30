@@ -136,6 +136,7 @@ export async function addPlanningSlotAction(formData: FormData) {
   const date = String(formData.get("date") ?? "");
   const period = String(formData.get("period") ?? "");
   const clinicalLocationId = String(formData.get("clinicalLocationId") ?? "");
+  const roomName = String(formData.get("roomName") ?? "").trim();
   const month = String(formData.get("month") ?? "");
 
   if (!yearMonthSchema.safeParse(month).success) {
@@ -149,6 +150,7 @@ export async function addPlanningSlotAction(formData: FormData) {
     date,
     period,
     clinicalLocationId,
+    roomName,
     month,
     role: profile.role,
   });
@@ -158,8 +160,16 @@ export async function addPlanningSlotAction(formData: FormData) {
   try {
     isoDateSchema.parse(date);
     z.string().uuid().parse(planId);
-    z.string().uuid().parse(clinicalLocationId);
     const periodParsed = z.enum(["mattina", "pomeriggio"]).parse(period);
+    const hasClinicalLocationId = Boolean(clinicalLocationId);
+    const hasRoomName = roomName.length > 0;
+
+    if (!hasClinicalLocationId && !hasRoomName) {
+      fail("Seleziona una sala prima di aggiungere lo slot.");
+    }
+    if (hasClinicalLocationId) {
+      z.string().uuid().parse(clinicalLocationId);
+    }
 
     if (profile.role !== "admin") {
       fail("Solo gli amministratori possono aggiungere slot sala al piano.");
@@ -184,29 +194,33 @@ export async function addPlanningSlotAction(formData: FormData) {
 
     const supabase = await createServerSupabaseClient();
 
-    const { data: locRaw, error: locErr } = await supabase
-      .from("clinical_locations")
-      .select("id,name,area_type,is_active")
-      .eq("id", clinicalLocationId)
-      .maybeSingle();
+    let slotRoomName = roomName;
+    if (hasClinicalLocationId) {
+      const { data: locRaw, error: locErr } = await supabase
+        .from("clinical_locations")
+        .select("id,name,area_type,is_active")
+        .eq("id", clinicalLocationId)
+        .maybeSingle();
 
-    if (locErr) {
-      fail(humanizePostgrestRlsError(locErr.message));
+      if (locErr) {
+        fail(humanizePostgrestRlsError(locErr.message));
+      }
+
+      const loc = locRaw as
+        | {
+            id: string;
+            name: string;
+            area_type: "sala_operatoria" | "rianimazione";
+            is_active: boolean;
+          }
+        | null;
+
+      if (!loc || !loc.is_active || loc.area_type !== "sala_operatoria") {
+        fail("La sala selezionata non è disponibile come sala operatoria attiva.");
+      }
+      const locRow = loc as NonNullable<typeof loc>;
+      slotRoomName = locRow.name;
     }
-
-    const loc = locRaw as
-      | {
-          id: string;
-          name: string;
-          area_type: "sala_operatoria" | "rianimazione";
-          is_active: boolean;
-        }
-      | null;
-
-    if (!loc || !loc.is_active || loc.area_type !== "sala_operatoria") {
-      fail("La sala selezionata non è disponibile come sala operatoria attiva.");
-    }
-    const locRow = loc as NonNullable<typeof loc>;
 
     const { data: dup, error: dupErr } = await supabase
       .from("shift_items")
@@ -215,7 +229,7 @@ export async function addPlanningSlotAction(formData: FormData) {
       .eq("shift_date", date)
       .eq("kind", "sala")
       .eq("period", periodParsed)
-      .eq("room_name", locRow.name)
+      .eq("room_name", slotRoomName)
       .maybeSingle();
 
     if (dupErr) {
@@ -239,8 +253,8 @@ export async function addPlanningSlotAction(formData: FormData) {
         period: periodParsed,
         start_time: start_end.start_time,
         end_time: start_end.end_time,
-        label: locRow.name,
-        room_name: locRow.name,
+        label: slotRoomName,
+        room_name: slotRoomName,
         specialty: null,
         source: "manual",
       })
@@ -265,7 +279,7 @@ export async function addPlanningSlotAction(formData: FormData) {
           after_data: {
             shift_date: date,
             period: periodParsed,
-            room_name: locRow.name,
+            room_name: slotRoomName,
             kind: "sala",
             source: "manual",
           },
