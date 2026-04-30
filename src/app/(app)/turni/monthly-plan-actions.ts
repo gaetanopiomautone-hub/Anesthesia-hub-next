@@ -130,7 +130,12 @@ export async function assignShiftItemAction(input: AssignShiftItemInput): Promis
  * Aggiunge una riga `shift_items` (sala) per giorno + mattina/pomeriggio usando `clinical_locations`.
  * RLS: insert solo admin.
  */
-export async function addPlanningSlotAction(formData: FormData) {
+export type AddPlanningSlotState = { ok: boolean; error?: string };
+
+export async function addPlanningSlotAction(
+  _prevState: AddPlanningSlotState | null,
+  formData: FormData,
+): Promise<AddPlanningSlotState> {
   const profile = await requireUser();
   const planId = String(formData.get("planId") ?? "");
   const date = String(formData.get("date") ?? "");
@@ -139,9 +144,7 @@ export async function addPlanningSlotAction(formData: FormData) {
   const roomName = String(formData.get("roomName") ?? "").trim();
   const month = String(formData.get("month") ?? "");
 
-  if (!yearMonthSchema.safeParse(month).success) {
-    redirect("/turni");
-  }
+  if (!yearMonthSchema.safeParse(month).success) return { ok: false, error: "Mese non valido." };
 
   // Debug temporaneo per verificare trigger server action da UI.
   // eslint-disable-next-line no-console
@@ -155,35 +158,35 @@ export async function addPlanningSlotAction(formData: FormData) {
     role: profile.role,
   });
 
-  const fail = (message: string): never => redirect(withQuery(month, { error: message }));
+  const fail = (message: string): AddPlanningSlotState => ({ ok: false, error: message });
 
   try {
     isoDateSchema.parse(date);
     z.string().uuid().parse(planId);
     const periodParsed = z.enum(["mattina", "pomeriggio"]).parse(period);
     if (!specialty) {
-      fail("Seleziona una specialita prima di aggiungere lo slot.");
+      return fail("Seleziona una specialita prima di aggiungere lo slot.");
     }
 
     if (profile.role !== "admin") {
-      fail("Solo gli amministratori possono aggiungere slot sala al piano.");
+      return fail("Solo gli amministratori possono aggiungere slot sala al piano.");
     }
 
     const plan = await getMonthlyShiftPlanById(planId);
     if (!plan) {
-      fail("Piano non trovato.");
+      return fail("Piano non trovato.");
     }
     const planRow = plan as NonNullable<typeof plan>;
     if (planRow.status === "approved") {
-      fail("Il piano è approvato: non puoi aggiungere slot.");
+      return fail("Il piano è approvato: non puoi aggiungere slot.");
     }
 
     const dateObj = parseISO(date);
     if (!isValid(dateObj)) {
-      fail("Data non valida.");
+      return fail("Data non valida.");
     }
     if (dateObj.getFullYear() !== planRow.year || dateObj.getMonth() + 1 !== planRow.month) {
-      fail("La data deve appartenere al mese del piano.");
+      return fail("La data deve appartenere al mese del piano.");
     }
 
     const supabase = await createServerSupabaseClient();
@@ -201,10 +204,10 @@ export async function addPlanningSlotAction(formData: FormData) {
       .maybeSingle();
 
     if (dupErr) {
-      fail(humanizePostgrestRlsError(dupErr.message));
+      return fail(humanizePostgrestRlsError(dupErr.message));
     }
     if (dup) {
-      fail("Questa sala è già presente per questo giorno e fascia oraria.");
+      return fail("Questa sala è già presente per questo giorno e fascia oraria.");
     }
 
     const start_end =
@@ -230,10 +233,10 @@ export async function addPlanningSlotAction(formData: FormData) {
       .single();
 
     if (insErr) {
-      fail(humanizePostgrestRlsError(insErr.message));
+      return fail(humanizePostgrestRlsError(insErr.message));
     }
     if (!inserted) {
-      fail("Inserimento non riuscito.");
+      return fail("Inserimento non riuscito.");
     }
 
     try {
@@ -263,12 +266,12 @@ export async function addPlanningSlotAction(formData: FormData) {
     }
 
     revalidatePath("/turni");
-    redirect(withQuery(month, { ok: "slot_added" }));
+    return { ok: true };
   } catch (e) {
     if (e instanceof z.ZodError) {
-      fail("Valore non valido");
+      return fail("Valore non valido");
     }
-    fail(e instanceof Error ? humanizePostgrestRlsError(e.message) : "Errore imprevisto");
+    return fail(e instanceof Error ? humanizePostgrestRlsError(e.message) : "Errore imprevisto");
   }
 }
 

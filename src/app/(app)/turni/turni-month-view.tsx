@@ -4,10 +4,11 @@ import { addMonths, format, parse, subMonths } from "date-fns";
 import { it } from "date-fns/locale";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useId, useMemo, useState } from "react";
+import { useActionState, useCallback, useEffect, useId, useMemo, useState } from "react";
 
 import {
   addPlanningSlotAction,
+  type AddPlanningSlotState,
   assignShiftItemAction,
   submitMonthlyPlanAction,
   approveMonthlyPlanAction,
@@ -77,9 +78,19 @@ function AddPlanningSalaSlotRow({
   locations: SalaAddOption[];
 }) {
   const [selectedOptionKey, setSelectedOptionKey] = useState("");
+  const [slotState, formAction, isPending] = useActionState<AddPlanningSlotState | null, FormData>(
+    addPlanningSlotAction,
+    null,
+  );
 
   const btnLabel =
     period === "mattina" ? "Aggiungi sala al mattino" : "Aggiungi sala al pomeriggio";
+
+  useEffect(() => {
+    if (slotState?.ok) {
+      setSelectedOptionKey("");
+    }
+  }, [slotState?.ok]);
 
   if (locations.length === 0) {
     return (
@@ -90,7 +101,7 @@ function AddPlanningSalaSlotRow({
   }
 
   return (
-    <form action={addPlanningSlotAction} className="mt-2 space-y-1 border-t border-dashed border-border/80 pt-2">
+    <form action={formAction} className="mt-2 space-y-1 border-t border-dashed border-border/80 pt-2">
       <input type="hidden" name="planId" value={planId} />
       <input type="hidden" name="date" value={shiftDate} />
       <input type="hidden" name="period" value={period} />
@@ -127,11 +138,13 @@ function AddPlanningSalaSlotRow({
           variant="outline"
           size="sm"
           className="h-8 shrink-0 text-xs"
-          disabled={!selectedOptionKey}
+          disabled={!selectedOptionKey || isPending}
         >
-          {btnLabel}
+          {isPending ? "Salvataggio..." : btnLabel}
         </Button>
       </div>
+      {slotState?.ok ? <p className="text-[0.7rem] text-emerald-700">Slot aggiunto correttamente.</p> : null}
+      {!slotState?.ok && slotState?.error ? <p className="text-[0.7rem] text-rose-700">{slotState.error}</p> : null}
     </form>
   );
 }
