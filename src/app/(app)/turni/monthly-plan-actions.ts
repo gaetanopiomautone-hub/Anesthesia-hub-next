@@ -142,6 +142,155 @@ export async function assignShiftItemAction(input: AssignShiftItemInput): Promis
  */
 export type AddPlanningSlotState = { ok: boolean; error?: string };
 
+export type DeletePlanningSlotState =
+  | { ok: true }
+  | { ok: false; error: string };
+
+function planCalendarMatchesYearMonth(planYear: number, planMonth: number, yearMonthStr: string) {
+  yearMonthSchema.parse(yearMonthStr);
+  const parts = yearMonthStr.split("-");
+  const y = Number(parts[0]);
+  const m = Number(parts[1]);
+  return planYear === y && planMonth === m;
+}
+
+/**
+ * Elimina una riga `shift_items` (solo kind sala) dal planning. Solo admin in bozza (non inviato/approvato).
+ * Uses service role; non tocca `clinical_locations`.
+ */
+export async function deletePlanningSlotAction(
+  _prevState: DeletePlanningSlotState | null,
+  formData: FormData,
+): Promise<DeletePlanningSlotState> {
+  const profile = await requireUser();
+
+  const fail = (message: string): DeletePlanningSlotState => ({ ok: false, error: message });
+
+  const shiftItemId = String(formData.get("shiftItemId") ?? "");
+  const planId = String(formData.get("planId") ?? "");
+  const month = String(formData.get("month") ?? "");
+
+  if (!yearMonthSchema.safeParse(month).success) {
+    return fail("Mese non valido.");
+  }
+
+  try {
+    z.string().uuid().parse(planId);
+    z.string().uuid().parse(shiftItemId);
+
+    if (profile.role !== "admin") {
+      return fail("Solo gli amministratori possono eliminare slot sala dal piano.");
+    }
+
+    const supabaseAdmin = createServiceRoleSupabaseClient();
+
+    const { data: planRaw, error: planErr } = await supabaseAdmin
+      .from("monthly_shift_plans")
+      .select("id,year,month,status")
+      .eq("id", planId)
+      .maybeSingle();
+    if (planErr) {
+      return fail(humanizePostgrestRlsError(planErr.message));
+    }
+    if (!planRaw) {
+      return fail("Piano non trovato.");
+    }
+    const planRow = planRaw as { id: string; year: number; month: number; status: string };
+
+    if (!planCalendarMatchesYearMonth(planRow.year, planRow.month, month)) {
+      return fail("Il mese non corrisponde al piano.");
+    }
+
+    if (planRow.status === "approved") {
+      return fail("Il piano è approvato: non puoi eliminare slot.");
+    }
+    if (planRow.status === "submitted") {
+      return fail("Il piano è inviato: non puoi eliminare slot. Riapri in bozza se necessario.");
+    }
+
+    const { data: itemRaw, error: itemErr } = await supabaseAdmin
+      .from("shift_items")
+      .select("id,plan_id,shift_date,kind,period,label,room_name,specialty,source,assigned_to")
+      .eq("id", shiftItemId)
+      .eq("plan_id", planId)
+      .eq("kind", "sala")
+      .maybeSingle();
+
+    if (itemErr) {
+      return fail(humanizePostgrestRlsError(itemErr.message));
+    }
+    if (!itemRaw) {
+      return fail("Slot sala non trovato per questo piano.");
+    }
+
+    const item = itemRaw as {
+      id: string;
+      plan_id: string;
+      shift_date: string;
+      kind: string;
+      period: string;
+      label: string;
+      room_name: string | null;
+      specialty: string | null;
+      source: string;
+      assigned_to: string | null;
+    };
+
+    const { data: deletedRows, error: delErr } = await supabaseAdmin
+      .from("shift_items")
+      .delete()
+      .eq("id", shiftItemId)
+      .eq("plan_id", planId)
+      .eq("kind", "sala")
+      .select("id");
+
+    if (delErr) {
+      return fail(humanizePostgrestRlsError(delErr.message));
+    }
+    if (!deletedRows?.length) {
+      return fail("Nessuno slot è stato rimosso (dato non più disponibile).");
+    }
+
+    try {
+      await insertPlanningChangeLogs([
+        {
+          planning_month_id: planId,
+          shift_id: null,
+          actor_user_id: profile.id,
+          action: "deleted",
+          before_data: {
+            id: item.id,
+            shift_date: item.shift_date,
+            period: item.period,
+            label: item.label,
+            room_name: item.room_name,
+            specialty: item.specialty,
+            kind: item.kind,
+            source: item.source,
+            assigned_to: item.assigned_to,
+          },
+          after_data: null,
+        },
+      ]);
+    } catch (auditError) {
+      // eslint-disable-next-line no-console
+      console.error("delete_planning_slot audit failed", {
+        planId,
+        shiftItemId,
+        message: auditError instanceof Error ? auditError.message : String(auditError),
+      });
+    }
+
+    revalidatePath("/turni");
+    return { ok: true };
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      return fail("Valore non valido");
+    }
+    return fail(e instanceof Error ? humanizePostgrestRlsError(e.message) : "Errore imprevisto");
+  }
+}
+
 export async function addPlanningSlotAction(
   _prevState: AddPlanningSlotState | null,
   formData: FormData,

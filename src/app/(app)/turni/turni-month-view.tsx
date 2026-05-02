@@ -9,6 +9,8 @@ import { useActionState, useCallback, useEffect, useId, useMemo, useState } from
 import {
   addPlanningSlotAction,
   type AddPlanningSlotState,
+  deletePlanningSlotAction,
+  type DeletePlanningSlotState,
   assignShiftItemAction,
   submitMonthlyPlanAction,
   approveMonthlyPlanAction,
@@ -149,6 +151,49 @@ function AddPlanningSalaSlotRow({
   );
 }
 
+function DeletePlanningSalaSlotForm({
+  shiftItemId,
+  planId,
+  yearMonth,
+}: {
+  shiftItemId: string;
+  planId: string;
+  yearMonth: string;
+}) {
+  const router = useRouter();
+  const [slotState, formAction, isPending] = useActionState<DeletePlanningSlotState | null, FormData>(
+    deletePlanningSlotAction,
+    null,
+  );
+
+  useEffect(() => {
+    if (slotState?.ok) {
+      router.refresh();
+    }
+  }, [slotState?.ok, router]);
+
+  return (
+    <form action={formAction} className="mt-1 flex flex-col gap-1">
+      <input type="hidden" name="shiftItemId" value={shiftItemId} />
+      <input type="hidden" name="planId" value={planId} />
+      <input type="hidden" name="month" value={yearMonth} />
+      <Button type="submit" variant="outline" size="sm" className="h-7 w-fit text-xs text-rose-800 dark:text-rose-300" disabled={isPending}>
+        {isPending ? "Eliminazione..." : "Elimina sala"}
+      </Button>
+      {slotState?.ok ? (
+        <p className="text-[0.7rem] text-emerald-700" role="status">
+          Sala rimossa dal planning.
+        </p>
+      ) : null}
+      {slotState && !slotState.ok ? (
+        <p className="text-[0.7rem] text-rose-700" role="alert">
+          {slotState.error}
+        </p>
+      ) : null}
+    </form>
+  );
+}
+
 type AssigneeOption = { id: string; full_name: string | null; email: string | null };
 
 function personLabel(people: AssigneeOption[], id: string | null) {
@@ -186,6 +231,7 @@ function TurniItemRow({
   inlineError,
   isConflictHighlight,
   onAssign,
+  deleteSalaPlanning,
 }: {
   item: ShiftItemRow;
   assigneeOptions: AssigneeOption[];
@@ -198,6 +244,8 @@ function TurniItemRow({
   /** Riga in conflitto con l’ultimo tentativo (stessa persona, stessa data). */
   isConflictHighlight?: boolean;
   onAssign: (userId: string | null) => void;
+  /** Admin + piano in bozza: elimina slot sala (solo righe kind sala). */
+  deleteSalaPlanning?: { planId: string; yearMonth: string } | null;
 }) {
   const hasAssignee = Boolean(item.assigned_to);
   const titleWhenReadOnly = assignReadOnlyTitle;
@@ -235,6 +283,13 @@ function TurniItemRow({
           <p className="text-[0.7rem] text-rose-800 dark:text-rose-200/90" title="Vincolo stesso giorno / stessa persona">
             Già assegnato in questo giorno
           </p>
+        ) : null}
+        {item.kind === "sala" && deleteSalaPlanning ? (
+          <DeletePlanningSalaSlotForm
+            shiftItemId={item.id}
+            planId={deleteSalaPlanning.planId}
+            yearMonth={deleteSalaPlanning.yearMonth}
+          />
         ) : null}
       </div>
       <div className="flex shrink-0 flex-col items-end gap-0.5">
@@ -288,6 +343,7 @@ function BlockSection({
   rowErrors,
   conflictItemIds,
   addSalaSlot,
+  deleteSalaPlanning,
 }: {
   title: string;
   timeHint?: string;
@@ -309,6 +365,7 @@ function BlockSection({
     period: "mattina" | "pomeriggio";
     locations: SalaAddOption[];
   } | null;
+  deleteSalaPlanning?: { planId: string; yearMonth: string } | null;
 }) {
   const conflictSet = useMemo(() => new Set(conflictItemIds), [conflictItemIds]);
   const h = useId();
@@ -346,6 +403,7 @@ function BlockSection({
               inlineError={rowErrors[item.id] ?? null}
               isConflictHighlight={conflictSet.has(item.id)}
               onAssign={(userId) => onAssignItem(item.id, userId)}
+              deleteSalaPlanning={deleteSalaPlanning}
             />
           ))}
         </div>
@@ -375,6 +433,7 @@ function DayCard({
   rowErrors,
   conflictItemIds,
   salaPlanningAdd,
+  salaDeletePlanning,
 }: {
   date: string;
   items: ShiftItemRow[];
@@ -388,6 +447,7 @@ function DayCard({
   conflictItemIds: string[];
   /** Aggiungi slot sala (admin): mattina/pomeriggio dall’anagrafica sale. */
   salaPlanningAdd?: { planId: string; yearMonth: string; locations: SalaAddOption[] } | null;
+  salaDeletePlanning?: { planId: string; yearMonth: string } | null;
 }) {
   const g = splitByBlock(items);
   const addMattina = salaPlanningAdd
@@ -427,6 +487,7 @@ function DayCard({
           rowErrors={rowErrors}
           conflictItemIds={conflictItemIds}
           addSalaSlot={addMattina}
+          deleteSalaPlanning={salaDeletePlanning}
         />
         <BlockSection
           title="Pomeriggio"
@@ -443,6 +504,7 @@ function DayCard({
           rowErrors={rowErrors}
           conflictItemIds={conflictItemIds}
           addSalaSlot={addPomeriggio}
+          deleteSalaPlanning={salaDeletePlanning}
         />
         <BlockSection
           title="Ambulatorio"
@@ -458,6 +520,7 @@ function DayCard({
           blockId={`${date}-amb-empty`}
           rowErrors={rowErrors}
           conflictItemIds={conflictItemIds}
+          deleteSalaPlanning={null}
         />
         <BlockSection
           title="Reperibilità"
@@ -472,6 +535,7 @@ function DayCard({
           blockId={`${date}-rep-empty`}
           rowErrors={rowErrors}
           conflictItemIds={conflictItemIds}
+          deleteSalaPlanning={null}
         />
       </div>
     </Card>
@@ -610,6 +674,11 @@ export function TurniMonthView({
     if (!isAdmin || planIsApproved) return null;
     return { planId: plan.id, yearMonth, locations: [...salaLocationsForPlanning] };
   }, [isAdmin, planIsApproved, plan.id, yearMonth, salaLocationsForPlanning]);
+
+  const salaDeletePlanning = useMemo(() => {
+    if (!isAdmin || plan.status !== "draft") return null;
+    return { planId: plan.id, yearMonth };
+  }, [isAdmin, plan.id, plan.status, yearMonth]);
 
   return (
     <div className="space-y-6">
@@ -775,6 +844,7 @@ export function TurniMonthView({
               rowErrors={rowErrors}
               conflictItemIds={conflictItemIds}
               salaPlanningAdd={salaPlanningAdd}
+              salaDeletePlanning={salaDeletePlanning}
             />
           ))
         )}
