@@ -5,6 +5,7 @@ import { roleLabels } from "@/lib/auth/roles";
 import { pickSpecializzandiProfilesEmbed } from "@/lib/domain/specializzandi-embed";
 import { cn } from "@/lib/utils/cn";
 
+import { SendPasswordLinkSubmitButton } from "@/components/forms/send-password-link-submit-button";
 import { ASSEGNAZIONE_LABEL_IT } from "@/lib/domain/specializzando-assignment";
 
 import { sendPasswordSetupLinkAdmin, setUserActiveAdmin } from "./actions";
@@ -73,13 +74,7 @@ export function AdminUsersTable({ rows }: { rows: AdminUsersListRow[] }) {
                   </Link>
                   <form action={sendPasswordSetupLinkAdmin} className="inline">
                     <input type="hidden" name="user_id" value={u.id} />
-                    <button
-                      type="submit"
-                      className="rounded-lg border border-primary/40 bg-primary/5 px-3 py-1 text-xs font-medium text-primary hover:bg-primary/10"
-                      title="Se l’account non è mai stato confermato reinvia l’invito; altrimenti invia email di reset password. Stesso traguardo: /set-password."
-                    >
-                      Invia link password
-                    </button>
+                    <SendPasswordLinkSubmitButton />
                   </form>
                   {u.is_active ? (
                     <form action={setUserActiveAdmin} className="inline">

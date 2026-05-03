@@ -9,6 +9,7 @@ import { ASSEGNAZIONE_SPECIALIZZANDO_VALUES } from "@/lib/domain/specializzando-
 import type { AppRole } from "@/lib/auth/roles";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service-role";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { describeSupabaseAuthEmailError } from "@/lib/supabase/auth-email-errors";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 import { siteUrlForAuthRedirect } from "@/lib/supabase/site-url";
 
@@ -109,7 +110,9 @@ export async function sendPasswordSetupLinkAdmin(formData: FormData) {
       msg.includes("user already exists");
 
     if (!duplicate) {
-      redirect("/admin/users?e=" + encodeURIComponent(inviteErr.message));
+      redirect(
+        "/admin/users?e=" + encodeURIComponent(describeSupabaseAuthEmailError(inviteErr.message)),
+      );
     }
     // Ripiego: secondo invito formale sullo stesso indirizzo a volte è rifiutato; il reset porta comunque a /set-password.
   }
@@ -119,7 +122,9 @@ export async function sendPasswordSetupLinkAdmin(formData: FormData) {
   const { error: resetErr } = await publicClient.auth.resetPasswordForEmail(email, { redirectTo });
 
   if (resetErr) {
-    redirect("/admin/users?e=" + encodeURIComponent(resetErr.message));
+    redirect(
+      "/admin/users?e=" + encodeURIComponent(describeSupabaseAuthEmailError(resetErr.message)),
+    );
   }
 
   revalidatePath("/admin/users");

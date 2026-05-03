@@ -4,6 +4,7 @@ import { requireRole } from "@/lib/auth/get-current-user-profile";
 import type { AppRole } from "@/lib/auth/roles";
 import type { AssegnazioneSpecializzando } from "@/lib/domain/specializzando-assignment";
 import { ASSEGNAZIONE_SPECIALIZZANDO_VALUES } from "@/lib/domain/specializzando-assignment";
+import { describeSupabaseAuthEmailError } from "@/lib/supabase/auth-email-errors";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service-role";
 import { siteUrlForAuthRedirect } from "@/lib/supabase/site-url";
 
@@ -109,7 +110,7 @@ export async function createUserByAdmin(formData: FormData): Promise<CreateUserB
     if (msg.includes("already registered") || msg.includes("already been registered")) {
       return { ok: false, error: "Questa email è già registrata. Usa un altro indirizzo o reimposta l’accesso da Supabase Auth." };
     }
-    return { ok: false, error: error.message };
+    return { ok: false, error: describeSupabaseAuthEmailError(error.message) };
   }
 
   return {
