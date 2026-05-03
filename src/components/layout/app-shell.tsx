@@ -2,7 +2,20 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, CalendarRange, ClipboardList, FileText, GraduationCap, LayoutDashboard, LibraryBig, ShieldCheck } from "lucide-react";
+import {
+  Building2,
+  CalendarDays,
+  CalendarRange,
+  ClipboardList,
+  FileText,
+  GraduationCap,
+  LayoutDashboard,
+  LayoutGrid,
+  LibraryBig,
+  ShieldCheck,
+  UserPlus,
+  Users,
+} from "lucide-react";
 
 import { logoutAction } from "@/app/(auth)/login/actions";
 import { canAccess } from "@/lib/auth/permissions";
@@ -18,6 +31,10 @@ const navigation = [
   { href: "/archivio", label: "Archivio didattico", icon: LibraryBig },
   { href: "/logbook", label: "Logbook", icon: ClipboardList },
   { href: "/report", label: "Report", icon: FileText },
+  { href: "/admin/users", label: "Utenti", icon: Users },
+  { href: "/admin/users/new", label: "Nuovo utente", icon: UserPlus },
+  { href: "/admin/locations", label: "Sale cliniche", icon: Building2 },
+  { href: "/admin/clinical-areas", label: "Aree turni", icon: LayoutGrid },
 ];
 
 type AppShellProps = {

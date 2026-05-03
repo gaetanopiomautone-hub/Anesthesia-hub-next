@@ -44,6 +44,11 @@ export async function previewPlanningAction(
   return { ok: true, preview, salaItems: built.sala.items, canEdit: profile.role === "admin" };
 }
 
+/**
+ * Slot sala dall’editor in anteprima (JSON nel form).
+ * In futuro, con `assigned_to` da Excel/editor: validare formato UUID, includerlo nei draft così `importMonthlyPlanning`
+ * applicherà `assertUserIdIsAssignableTrainee` sugli UUID distinti (insert/import).
+ */
 function parseEditedSalaItems(raw: FormDataEntryValue | null): ShiftItemDraft[] | null {
   if (!raw || typeof raw !== "string" || !raw.trim()) return null;
   try {

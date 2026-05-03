@@ -1,3 +1,14 @@
+insert into public.clinical_areas (code, name, sort_order)
+values
+  ('rianimazione', 'Rianimazione', 10),
+  ('sala_base', 'Sala base', 20),
+  ('sala_locoregionale', 'Sala locoregionale', 30),
+  ('sala_avanzata', 'Sala avanzata', 40)
+on conflict (code) do update
+set
+  name = excluded.name,
+  sort_order = excluded.sort_order;
+
 insert into public.clinical_locations (id, name, area_type, specialty)
 values
   ('00000000-0000-0000-0000-000000000101', 'S.O. 2 Ortopedia', 'sala_operatoria', 'Ortopedia'),
@@ -13,13 +24,18 @@ values
 on conflict (id) do nothing;
 
 -- Dopo la creazione degli utenti auth, sostituire gli UUID placeholder con quelli reali di auth.users.
-insert into public.profiles (id, email, full_name, role, year_of_training)
+insert into public.profiles (id, email, nome, cognome, role, telefono)
 values
-  ('10000000-0000-0000-0000-000000000001', 'giulia.bianchi@policlinicosandonato.it', 'Giulia Bianchi', 'specializzando', 3),
-  ('10000000-0000-0000-0000-000000000002', 'marco.rinaldi@policlinicosandonato.it', 'Marco Rinaldi', 'addetto_turni', null),
-  ('10000000-0000-0000-0000-000000000003', 'laura.conti@policlinicosandonato.it', 'Laura Conti', 'admin', null),
-  ('10000000-0000-0000-0000-000000000004', 'davide.sala@policlinicosandonato.it', 'Davide Sala', 'tutor_strutturato', null)
+  ('10000000-0000-0000-0000-000000000001', 'giulia.bianchi@policlinicosandonato.it', 'Giulia', 'Bianchi', 'specializzando', null),
+  ('10000000-0000-0000-0000-000000000002', 'marco.rinaldi@policlinicosandonato.it', 'Marco', 'Rinaldi', 'tutor', null),
+  ('10000000-0000-0000-0000-000000000003', 'laura.conti@policlinicosandonato.it', 'Laura', 'Conti', 'admin', null),
+  ('10000000-0000-0000-0000-000000000004', 'davide.sala@policlinicosandonato.it', 'Davide', 'Sala', 'tutor', null)
 on conflict (id) do nothing;
+
+insert into public.specializzandi_profiles (user_id, anno_specialita, assegnazione)
+values
+  ('10000000-0000-0000-0000-000000000001', 3, 'rianimazione')
+on conflict (user_id) do nothing;
 
 insert into public.shifts (shift_date, shift_kind, location_id, assignee_profile_id, supervisor_profile_id, created_by)
 values

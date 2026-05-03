@@ -74,6 +74,18 @@ begin
   end if;
 end$$;
 
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'assegnazione_specializzando') then
+    create type public.assegnazione_specializzando as enum (
+      'rianimazione',
+      'sala_base',
+      'sala_locoregionale',
+      'sala_avanzata'
+    );
+  end if;
+end$$;
+
 -- ---------------------------------------------------------------------------
 -- profiles: single source of truth for application role (linked to Auth)
 -- ---------------------------------------------------------------------------
@@ -81,38 +93,26 @@ end$$;
 create table if not exists public.profiles (
   id uuid primary key references auth.users (id) on delete cascade,
   email text not null unique,
-  full_name text not null default '',
+  nome text not null default '',
+  cognome text not null default '',
+  telefono text,
   role public.app_role not null default 'specializzando',
   is_active boolean not null default true,
-  year_of_training int,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  constraint profiles_year_of_training_check check (
-    year_of_training between 1 and 5
-    or year_of_training is null
-  )
+  updated_at timestamptz not null default now()
 );
 
--- Migrate legacy column name residency_year -> year_of_training (non-destructive rename)
-do $$
-begin
-  if exists (
-    select 1
-    from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'profiles'
-      and column_name = 'residency_year'
-  )
-  and not exists (
-    select 1
-    from information_schema.columns
-    where table_schema = 'public'
-      and table_name = 'profiles'
-      and column_name = 'year_of_training'
-  ) then
-    alter table public.profiles rename column residency_year to year_of_training;
-  end if;
-end$$;
+create table if not exists public.specializzandi_profiles (
+  user_id uuid primary key references public.profiles (id) on delete cascade,
+  anno_specialita int not null,
+  assegnazione public.assegnazione_specializzando not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint specializzandi_profiles_anno_check check (anno_specialita between 1 and 5)
+);
+
+create index if not exists specializzandi_profiles_assegnazione_idx
+  on public.specializzandi_profiles (assegnazione);
 
 -- ---------------------------------------------------------------------------
 -- Domain tables
@@ -126,6 +126,28 @@ create table if not exists public.clinical_locations (
   is_active boolean not null default true,
   created_at timestamptz not null default now()
 );
+
+create table if not exists public.clinical_areas (
+  id uuid primary key default gen_random_uuid(),
+  code text not null unique,
+  name text not null,
+  description text,
+  is_active boolean not null default true,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+insert into public.clinical_areas (code, name, sort_order)
+values
+  ('rianimazione', 'Rianimazione', 10),
+  ('sala_base', 'Sala base', 20),
+  ('sala_locoregionale', 'Sala locoregionale', 30),
+  ('sala_avanzata', 'Sala avanzata', 40)
+on conflict (code) do update
+set
+  name = excluded.name,
+  sort_order = excluded.sort_order;
 
 create table if not exists public.shifts (
   id uuid primary key default gen_random_uuid(),
@@ -327,6 +349,13 @@ create table if not exists public.shift_items (
   updated_at timestamptz not null default now()
 );
 
+alter table public.shift_items
+  add column if not exists clinical_area_id uuid references public.clinical_areas (id) on delete restrict;
+
+create index if not exists shift_items_clinical_area_id_idx
+  on public.shift_items (clinical_area_id)
+  where clinical_area_id is not null;
+
 create index if not exists shift_items_plan_id_shift_date_idx
   on public.shift_items (plan_id, shift_date);
 
@@ -400,10 +429,164 @@ create trigger shift_items_set_updated_at
 before update on public.shift_items
 for each row execute function public.set_updated_at();
 
+drop trigger if exists clinical_areas_set_updated_at on public.clinical_areas;
+create trigger clinical_areas_set_updated_at
+before update on public.clinical_areas
+for each row execute function public.set_updated_at();
+
+drop trigger if exists specializzandi_profiles_set_updated_at on public.specializzandi_profiles;
+create trigger specializzandi_profiles_set_updated_at
+before update on public.specializzandi_profiles
+for each row execute function public.set_updated_at();
+
 -- Aggiorna vincoli su DB già creati prima dell’aggiunta di `manual` (idempotente)
 alter table public.shift_items drop constraint if exists shift_items_source_check;
 alter table public.shift_items add constraint shift_items_source_check
   check (source in ('excel', 'generated', 'manual'));
+
+-- ---------------------------------------------------------------------------
+-- Profili: integrità ruolo vs specializzandi_profiles
+-- ---------------------------------------------------------------------------
+
+create or replace function public.profiles_strip_specializzandi_on_role_change()
+returns trigger
+language plpgsql
+as $$
+begin
+  if tg_op = 'UPDATE'
+     and old.role = 'specializzando'
+     and new.role in ('admin', 'tutor') then
+    delete from public.specializzandi_profiles where user_id = new.id;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists profiles_strip_specializzandi_on_role_change on public.profiles;
+
+create trigger profiles_strip_specializzandi_on_role_change
+before update of role on public.profiles
+for each row
+execute function public.profiles_strip_specializzandi_on_role_change();
+
+create or replace function public.profiles_specializzando_integrity()
+returns trigger
+language plpgsql
+as $$
+begin
+  if new.role = 'specializzando' then
+    if not exists (
+      select 1
+      from public.specializzandi_profiles sp
+      where sp.user_id = new.id
+    ) then
+      raise exception 'specializzando richiede specializzandi_profiles (anno_specialita e assegnazione).';
+    end if;
+  elsif new.role in ('admin', 'tutor') then
+    if exists (
+      select 1
+      from public.specializzandi_profiles sp
+      where sp.user_id = new.id
+    ) then
+      raise exception 'ruolo % non ammette dati in specializzandi_profiles.', new.role;
+    end if;
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists profiles_specializzando_integrity on public.profiles;
+
+create constraint trigger profiles_specializzando_integrity
+after insert or update of role on public.profiles
+deferrable initially deferred
+for each row
+execute function public.profiles_specializzando_integrity();
+
+-- ---------------------------------------------------------------------------
+-- Aggiornamento profilo Admin (singola transazione; solo service_role)
+-- ---------------------------------------------------------------------------
+
+create or replace function public.admin_apply_profile_update(
+  p_user_id uuid,
+  p_nome text,
+  p_cognome text,
+  p_telefono text,
+  p_email text,
+  p_is_active boolean,
+  p_role public.app_role,
+  p_anno int,
+  p_asseg public.assegnazione_specializzando
+)
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if p_role not in ('specializzando'::public.app_role, 'admin'::public.app_role, 'tutor'::public.app_role) then
+    raise exception 'Ruolo non valido.';
+  end if;
+
+  if p_role = 'specializzando'::public.app_role then
+    if p_anno is null or p_anno < 1 or p_anno > 5 or p_asseg is null then
+      raise exception 'specializzando richiede anno_specialita (1–5) e assegnazione.';
+    end if;
+  end if;
+
+  if coalesce(nullif(trim(p_nome), ''), '') = '' or coalesce(nullif(trim(p_cognome), ''), '') = '' then
+    raise exception 'Nome e cognome obbligatori.';
+  end if;
+
+  update public.profiles
+  set
+    nome = trim(p_nome),
+    cognome = trim(p_cognome),
+    telefono = nullif(trim(p_telefono), ''),
+    email = lower(nullif(trim(p_email), '')),
+    is_active = p_is_active,
+    role = p_role,
+    updated_at = now()
+  where id = p_user_id;
+
+  if not found then
+    raise exception 'Utente non trovato.';
+  end if;
+
+  if lower(nullif(trim(p_email), '')) is null then
+    raise exception 'Email obbligatoria.';
+  end if;
+
+  if p_role = 'specializzando'::public.app_role then
+    insert into public.specializzandi_profiles as sp (user_id, anno_specialita, assegnazione)
+    values (p_user_id, p_anno, p_asseg)
+    on conflict (user_id) do update set
+      anno_specialita = excluded.anno_specialita,
+      assegnazione = excluded.assegnazione,
+      updated_at = now();
+  else
+    delete from public.specializzandi_profiles where user_id = p_user_id;
+  end if;
+end;
+$$;
+
+revoke all on function public.admin_apply_profile_update(
+  uuid, text, text, text, text, boolean,
+  public.app_role, integer, public.assegnazione_specializzando
+)
+from PUBLIC;
+
+revoke execute on function public.admin_apply_profile_update(
+  uuid, text, text, text, text, boolean,
+  public.app_role, integer, public.assegnazione_specializzando
+)
+from anon, authenticated;
+
+grant execute on function public.admin_apply_profile_update(
+  uuid, text, text, text, text, boolean,
+  public.app_role, integer, public.assegnazione_specializzando
+)
+to service_role;
 
 -- ---------------------------------------------------------------------------
 -- Auth bootstrap: auto-create profile on new auth.users row
@@ -415,16 +598,103 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  meta jsonb := coalesce(new.raw_user_meta_data, '{}'::jsonb);
+  r text := nullif(trim(meta ->> 'role'), '');
+  resolved_role public.app_role := 'specializzando'::public.app_role;
+  v_nome text := coalesce(nullif(trim(meta ->> 'nome'), ''), '');
+  v_cognome text := coalesce(nullif(trim(meta ->> 'cognome'), ''), '');
+  v_telefono text := nullif(trim(meta ->> 'telefono'), '');
+  v_anno int;
+  v_asseg_raw text := nullif(trim(meta ->> 'assegnazione'), '');
+  v_asseg_enum public.assegnazione_specializzando;
+  meta_anno_nonempty boolean := nullif(trim(meta ->> 'anno_specialita'), '') is not null;
+  meta_asseg_nonempty boolean := v_asseg_raw is not null;
 begin
-  insert into public.profiles (id, email, full_name, role, is_active)
+  if r in ('specializzando', 'admin', 'tutor') then
+    resolved_role := r::public.app_role;
+  end if;
+
+  if resolved_role in ('admin', 'tutor') then
+    if meta_anno_nonempty or meta_asseg_nonempty then
+      raise exception
+        'Metadati anno_specialita/assegnazione non ammessi per ruolo % (usare solo per specializzando).',
+        resolved_role;
+    end if;
+  end if;
+
+  if v_nome = '' and v_cognome = '' and meta ? 'full_name' then
+    v_nome := coalesce(nullif(trim(split_part(trim(meta ->> 'full_name'), ' ', 1)), ''), '');
+    v_cognome := coalesce(
+      nullif(
+        trim(
+          substring(
+            trim(meta ->> 'full_name')
+            from length(split_part(trim(meta ->> 'full_name'), ' ', 1)) + 2
+          )
+        ),
+        ''
+      ),
+      ''
+    );
+  end if;
+
+  insert into public.profiles (
+    id,
+    email,
+    nome,
+    cognome,
+    telefono,
+    role,
+    is_active
+  )
   values (
     new.id,
-    coalesce(new.email, ''),
-    coalesce(new.raw_user_meta_data ->> 'full_name', ''),
-    'specializzando',
+    coalesce(nullif(trim(new.email), ''), ''),
+    v_nome,
+    v_cognome,
+    v_telefono,
+    resolved_role,
     true
   )
   on conflict (id) do nothing;
+
+  if resolved_role = 'specializzando'::public.app_role then
+    begin
+      v_anno :=
+        case
+          when nullif(trim(meta ->> 'anno_specialita'), '') is null then null
+          else (trim(meta ->> 'anno_specialita'))::int
+        end;
+    exception
+      when others then v_anno := null;
+    end;
+
+    v_asseg_enum := null;
+    if v_asseg_raw is not null then
+      begin
+        v_asseg_enum := v_asseg_raw::public.assegnazione_specializzando;
+      exception
+        when others then v_asseg_enum := null;
+      end;
+    end if;
+
+    if v_anno is null or v_anno < 1 or v_anno > 5 or v_asseg_enum is null then
+      raise exception
+        'specializzando richiede nei metadati utente anno_specialita (1-5) e assegnazione valida (rianimazione|sala_base|sala_locoregionale|sala_avanzata).';
+    end if;
+
+    insert into public.specializzandi_profiles (
+      user_id,
+      anno_specialita,
+      assegnazione
+    )
+    values (new.id, v_anno, v_asseg_enum)
+    on conflict (user_id) do update set
+      anno_specialita = excluded.anno_specialita,
+      assegnazione = excluded.assegnazione,
+      updated_at = now();
+  end if;
 
   return new;
 end;

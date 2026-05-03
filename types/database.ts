@@ -6,11 +6,23 @@ export type Database = {
       profiles: {
         Row: {
           id: string;
-          full_name: string;
+          nome: string;
+          cognome: string;
+          telefono: string | null;
           role: string;
           email: string;
-          residency_year: number | null;
+          is_active: boolean;
           created_at: string;
+          updated_at: string;
+        };
+      };
+      specializzandi_profiles: {
+        Row: {
+          user_id: string;
+          anno_specialita: number;
+          assegnazione: string;
+          created_at: string;
+          updated_at: string;
         };
       };
       shifts: {

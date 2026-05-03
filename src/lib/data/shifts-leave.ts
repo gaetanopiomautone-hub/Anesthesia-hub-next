@@ -2,7 +2,9 @@ import { addMonths, endOfMonth, format, isValid, parse, startOfMonth } from "dat
 import { it } from "date-fns/locale";
 
 import type { CurrentUserProfile } from "@/lib/auth/get-current-user-profile";
+import { listAssignableUsers } from "@/lib/data/shifts";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { profileDisplayName } from "@/lib/utils/profile-display";
 
 import { formatDateItalian, leaveTypeLabelItalian, type LeaveRequestStatus, type LeaveRequestType } from "@/lib/data/leave-requests";
 
@@ -311,7 +313,7 @@ async function listLeavesOverlappingMonth(params: { monthStart: string; monthEnd
 
   const { data: requesters, error: requestersError } = await supabase
     .from("profiles")
-    .select("id, full_name, email")
+    .select("id, nome, cognome, email")
     .in("id", userIds);
 
   if (requestersError) {
@@ -319,7 +321,11 @@ async function listLeavesOverlappingMonth(params: { monthStart: string; monthEnd
   }
 
   const requesterById = new Map(
-    (requesters ?? []).map((p) => [String(p.id), { full_name: p.full_name ?? null, email: p.email ?? null }]),
+    (requesters ?? []).map((p) => {
+      const id = String(p.id);
+      const email = p.email ?? null;
+      return [id, { full_name: profileDisplayName({ nome: p.nome, cognome: p.cognome, email }) || null, email }];
+    }),
   );
 
   return rows.map((r) => ({
@@ -328,22 +334,10 @@ async function listLeavesOverlappingMonth(params: { monthStart: string; monthEnd
   }));
 }
 
+/** Stesso criterio degli assegnabili ai turni: solo specializzandi attivi con anno + assegnazione. */
 export async function listSpecializzandiForFilter(profile: CurrentUserProfile) {
   if (profile.role !== "admin") return [];
-
-  const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("id, full_name, email")
-    .eq("role", "specializzando")
-    .eq("is_active", true)
-    .order("full_name", { ascending: true });
-
-  if (error) {
-    throw new Error(`profiles list failed: ${error.message}`);
-  }
-
-  return (data ?? []) as { id: string; full_name: string; email: string }[];
+  return listAssignableUsers();
 }
 
 export async function loadTurniFeriePageData(
