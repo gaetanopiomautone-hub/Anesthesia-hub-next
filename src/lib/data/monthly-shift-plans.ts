@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import { assertUserIdIsAssignableTrainee } from "@/lib/data/assignable-trainee-guard";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { MonthlyShiftPlanRow, ShiftItemRow } from "@/lib/domain/monthly-shifts";
 
@@ -19,7 +20,28 @@ function mapPlan(raw: Record<string, unknown>): MonthlyShiftPlanRow {
   };
 }
 
+function pickClinicalAreaEmbed(raw: unknown): ShiftItemRow["clinical_area"] {
+  if (raw == null || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (!o.id) return null;
+  return {
+    id: String(o.id),
+    code: String(o.code ?? ""),
+    name: String(o.name ?? ""),
+    is_active: Boolean(o.is_active ?? true),
+  };
+}
+
 function mapItem(raw: Record<string, unknown>): ShiftItemRow {
+  const embed =
+    pickClinicalAreaEmbed(raw.clinical_areas) ??
+    pickClinicalAreaEmbed(Array.isArray(raw.clinical_areas) ? raw.clinical_areas[0] : null);
+
+  const clinical_area_id =
+    raw.clinical_area_id != null && String(raw.clinical_area_id).length > 0
+      ? String(raw.clinical_area_id)
+      : embed?.id ?? null;
+
   return {
     id: String(raw.id ?? ""),
     plan_id: String(raw.plan_id ?? ""),
@@ -31,6 +53,8 @@ function mapItem(raw: Record<string, unknown>): ShiftItemRow {
     label: String(raw.label ?? ""),
     room_name: raw.room_name != null ? String(raw.room_name) : null,
     specialty: raw.specialty != null ? String(raw.specialty) : null,
+    clinical_area_id,
+    clinical_area: embed,
     source: (raw.source as ShiftItemRow["source"]) ?? "generated",
     assigned_to: raw.assigned_to ? String(raw.assigned_to) : null,
     created_at: String(raw.created_at ?? ""),
@@ -65,7 +89,12 @@ export async function listShiftItemsByPlanId(planId: string): Promise<ShiftItemR
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from("shift_items")
-    .select("*")
+    .select(
+      `
+      *,
+      clinical_areas ( id, code, name, is_active )
+    `,
+    )
     .eq("plan_id", planId)
     .order("shift_date", { ascending: true });
 
@@ -77,7 +106,16 @@ export async function listShiftItemsByPlanId(planId: string): Promise<ShiftItemR
 
 export async function getShiftItemById(shiftItemId: string): Promise<ShiftItemRow | null> {
   const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase.from("shift_items").select("*").eq("id", shiftItemId).maybeSingle();
+  const { data, error } = await supabase
+    .from("shift_items")
+    .select(
+      `
+      *,
+      clinical_areas ( id, code, name, is_active )
+    `,
+    )
+    .eq("id", shiftItemId)
+    .maybeSingle();
   if (error) {
     throw new Error(`shift_items by id: ${error.message}`);
   }
@@ -119,8 +157,14 @@ export async function getMonthlyShiftPlanById(planId: string): Promise<MonthlySh
 
 /**
  * Assegna un operatore a una riga `shift_items`. Rispetta RLS; a livello app non si modifica se il piano è `approved`.
+ * Con `userId` valorizzato: validazione lettura tramite {@link assertUserIdIsAssignableTrainee} (service role);
+ * UPDATE su `shift_items` con questo client di sessione, non service role.
  */
 export async function updateShiftAssignment(shiftItemId: string, userId: string | null) {
+  if (userId !== null) {
+    await assertUserIdIsAssignableTrainee(userId);
+  }
+
   const supabase = await createServerSupabaseClient();
   const { error } = await supabase
     .from("shift_items")

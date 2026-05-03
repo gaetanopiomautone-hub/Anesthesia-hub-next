@@ -20,7 +20,7 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Dashboard"
-        title={`Benvenuta, ${user.full_name.split(" ")[0]}`}
+        title={`Benvenuta, ${user.nome?.trim() || user.full_name}`}
         description={roleHighlights[user.role]}
         actions={<Badge>{roleLabels[user.role]}</Badge>}
       />

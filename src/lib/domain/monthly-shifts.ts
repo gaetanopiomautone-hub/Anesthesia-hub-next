@@ -33,6 +33,15 @@ export type ShiftItemRow = {
   label: string;
   room_name: string | null;
   specialty: string | null;
+  /** Area tipo turno (FK `clinical_areas`); opzionale durante il rollout. */
+  clinical_area_id: string | null;
+  /** Popolato quando si legge con join `clinical_areas` (storico: anche aree disattivate). */
+  clinical_area: {
+    id: string;
+    code: string;
+    name: string;
+    is_active: boolean;
+  } | null;
   source: ShiftItemSource;
   assigned_to: string | null;
   created_at: string;

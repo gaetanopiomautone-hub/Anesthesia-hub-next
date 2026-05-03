@@ -6,11 +6,15 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useActionState, useCallback, useEffect, useId, useMemo, useState } from "react";
 
+import { groupAssigneesByClinicalAreaHint } from "@/lib/domain/shift-assignee-area-hint";
+
 import {
   addPlanningSlotAction,
   type AddPlanningSlotState,
   deletePlanningSlotAction,
   type DeletePlanningSlotState,
+  updatePlanningSlotClinicalAreaAction,
+  type UpdatePlanningSlotClinicalAreaState,
   assignShiftItemAction,
   submitMonthlyPlanAction,
   approveMonthlyPlanAction,
@@ -25,6 +29,7 @@ import {
   shiftItemSourceLabelItalian,
 } from "@/lib/domain/monthly-shifts";
 import { formatDateItalian } from "@/lib/domain/leave-request-shared";
+import type { AssignableShiftUserOption } from "@/lib/data/shifts";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils/cn";
@@ -63,6 +68,7 @@ type SalaAddOption = {
   name: string;
   specialty: string;
   roomName: string | null;
+  clinicalAreaId: string;
   source: "planning";
 };
 
@@ -80,6 +86,7 @@ function AddPlanningSalaSlotRow({
   locations: SalaAddOption[];
 }) {
   const [selectedOptionKey, setSelectedOptionKey] = useState("");
+  const [roomExtra, setRoomExtra] = useState("");
   const [slotState, formAction, isPending] = useActionState<AddPlanningSlotState | null, FormData>(
     addPlanningSlotAction,
     null,
@@ -91,16 +98,19 @@ function AddPlanningSalaSlotRow({
   useEffect(() => {
     if (slotState?.ok) {
       setSelectedOptionKey("");
+      setRoomExtra("");
     }
   }, [slotState?.ok]);
 
   if (locations.length === 0) {
     return (
       <p className="mt-2 text-[0.7rem] text-muted-foreground">
-        Nessuna specialita sala trovata nel planning corrente.
+        Nessuna area sala attiva: configurale in Admin → Aree turni.
       </p>
     );
   }
+
+  const selectedAreaId = locations.find((o) => o.key === selectedOptionKey)?.clinicalAreaId ?? "";
 
   return (
     <form action={formAction} className="mt-2 space-y-1 border-t border-dashed border-border/80 pt-2">
@@ -108,19 +118,10 @@ function AddPlanningSalaSlotRow({
       <input type="hidden" name="date" value={shiftDate} />
       <input type="hidden" name="period" value={period} />
       <input type="hidden" name="month" value={yearMonth} />
-      <input
-        type="hidden"
-        name="specialty"
-        value={locations.find((o) => o.key === selectedOptionKey)?.specialty ?? ""}
-      />
-      <input
-        type="hidden"
-        name="roomName"
-        value={locations.find((o) => o.key === selectedOptionKey)?.roomName ?? ""}
-      />
+      <input type="hidden" name="clinicalAreaId" value={selectedAreaId} />
       <div className="flex flex-wrap items-center gap-2">
         <label className="sr-only" htmlFor={`add-sala-${shiftDate}-${period}`}>
-          Sala
+          Area sala
         </label>
         <select
           id={`add-sala-${shiftDate}-${period}`}
@@ -128,13 +129,21 @@ function AddPlanningSalaSlotRow({
           value={selectedOptionKey}
           onChange={(e) => setSelectedOptionKey(e.target.value)}
         >
-          <option value="">Sala da aggiungere…</option>
+          <option value="">Area tipo turno…</option>
           {locations.map((loc) => (
             <option key={loc.key} value={loc.key}>
               {loc.name}
             </option>
           ))}
         </select>
+        <input
+          type="text"
+          name="roomName"
+          value={roomExtra}
+          onChange={(e) => setRoomExtra(e.target.value)}
+          placeholder="Sala fisica (opz.)"
+          className="h-8 min-w-[8rem] max-w-full rounded-md border border-input bg-card px-2 text-xs"
+        />
         <Button
           type="submit"
           variant="outline"
@@ -194,13 +203,76 @@ function DeletePlanningSalaSlotForm({
   );
 }
 
-type AssigneeOption = { id: string; full_name: string | null; email: string | null };
+function UpdatePlanningSalaClinicalAreaRow({
+  shiftItemId,
+  planId,
+  yearMonth,
+  areas,
+  currentClinicalAreaId,
+}: {
+  shiftItemId: string;
+  planId: string;
+  yearMonth: string;
+  areas: SalaAddOption[];
+  currentClinicalAreaId: string | null;
+}) {
+  const selectedInitial =
+    currentClinicalAreaId && areas.some((a) => a.clinicalAreaId === currentClinicalAreaId)
+      ? currentClinicalAreaId
+      : "";
+  const [selected, setSelected] = useState(selectedInitial);
+  const [areaState, areaAction, areaPending] = useActionState<
+    UpdatePlanningSlotClinicalAreaState | null,
+    FormData
+  >(updatePlanningSlotClinicalAreaAction, null);
+
+  useEffect(() => {
+    const next =
+      currentClinicalAreaId && areas.some((a) => a.clinicalAreaId === currentClinicalAreaId)
+        ? currentClinicalAreaId
+        : "";
+    setSelected(next);
+  }, [currentClinicalAreaId, areas]);
+
+  return (
+    <form action={areaAction} className="mt-1 flex flex-wrap items-end gap-2 border-t border-dashed border-border/60 pt-2">
+      <input type="hidden" name="shiftItemId" value={shiftItemId} />
+      <input type="hidden" name="planId" value={planId} />
+      <input type="hidden" name="month" value={yearMonth} />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-[0.65rem] font-medium uppercase tracking-wide text-muted-foreground">Area turno</span>
+        <select
+          name="clinicalAreaId"
+          required
+          className="h-8 w-full min-w-[10rem] max-w-full rounded-md border border-input bg-card px-2 text-xs"
+          value={selected}
+          onChange={(e) => setSelected(e.target.value)}
+        >
+          <option value="">Scegli area…</option>
+          {areas.map((a) => (
+            <option key={a.clinicalAreaId} value={a.clinicalAreaId}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <Button type="submit" variant="outline" size="sm" className="h-8 shrink-0 text-xs" disabled={areaPending || !selected}>
+        {areaPending ? "…" : "Aggiorna area"}
+      </Button>
+      {areaState && !areaState.ok ? (
+        <p className="w-full text-[0.65rem] text-rose-700">{areaState.error}</p>
+      ) : null}
+    </form>
+  );
+}
+
+type AssigneeOption = AssignableShiftUserOption;
 
 function personLabel(people: AssigneeOption[], id: string | null) {
   if (!id) return "—";
   const p = people.find((u) => u.id === id);
   if (!p) return "—";
-  return p.full_name?.trim() || p.email?.trim() || p.id;
+  return p.list_label.trim() || p.full_name?.trim() || p.email?.trim() || p.id;
 }
 
 function formatAuditDateTime(ts: string) {
@@ -232,6 +304,7 @@ function TurniItemRow({
   isConflictHighlight,
   onAssign,
   deleteSalaPlanning,
+  salaAreaSelectOptions,
 }: {
   item: ShiftItemRow;
   assigneeOptions: AssigneeOption[];
@@ -246,9 +319,21 @@ function TurniItemRow({
   onAssign: (userId: string | null) => void;
   /** Admin + piano in bozza: elimina slot sala (solo righe kind sala). */
   deleteSalaPlanning?: { planId: string; yearMonth: string } | null;
+  /** Aree attive per cambio area su slot sala (solo bozza). */
+  salaAreaSelectOptions?: SalaAddOption[];
 }) {
   const hasAssignee = Boolean(item.assigned_to);
   const titleWhenReadOnly = assignReadOnlyTitle;
+  const shiftAreaCode = item.kind === "sala" ? item.clinical_area?.code ?? null : null;
+  const assigneeGroups = useMemo(
+    () => groupAssigneesByClinicalAreaHint(assigneeOptions, shiftAreaCode),
+    [assigneeOptions, shiftAreaCode],
+  );
+  const assigneeOptionLabel = (u: AssigneeOption) =>
+    u.list_label.trim() || u.full_name?.trim() || u.email?.trim() || u.id;
+  const assignedProfile = item.assigned_to ? assigneeOptions.find((u) => u.id === item.assigned_to) : undefined;
+  const assigneeMatchesAreaHint =
+    Boolean(shiftAreaCode) && assignedProfile?.assegnazione === shiftAreaCode;
 
   return (
     <div
@@ -270,10 +355,25 @@ function TurniItemRow({
     >
       <div className="min-w-0 space-y-0.5">
         <div className="text-foreground">{item.label}</div>
-        {item.kind === "sala" && (item.room_name || item.specialty) ? (
+        {item.kind === "sala" && (item.clinical_area || item.room_name || item.specialty) ? (
           <p className="text-xs text-muted-foreground">
-            {item.room_name && <span className="mr-2">Sala: {item.room_name}</span>}
-            {item.specialty}
+            {item.clinical_area ? (
+              <>
+                <span className="font-medium text-foreground/90">{item.clinical_area.name}</span>
+                <span className="text-muted-foreground"> ({item.clinical_area.code})</span>
+                {!item.clinical_area.is_active ? (
+                  <span className="ml-1 rounded bg-muted px-1 text-[0.65rem] uppercase tracking-wide">storico</span>
+                ) : null}
+              </>
+            ) : (
+              <>
+                {item.specialty}
+                {item.room_name ? <span className="ml-2">· Sala {item.room_name}</span> : null}
+              </>
+            )}
+            {item.clinical_area && item.room_name ? (
+              <span className="mt-0.5 block sm:mt-0 sm:ml-2 sm:inline">Sala fisica: {item.room_name}</span>
+            ) : null}
           </p>
         ) : null}
         <p className="text-[0.7rem] uppercase text-muted-foreground/90">
@@ -283,6 +383,15 @@ function TurniItemRow({
           <p className="text-[0.7rem] text-rose-800 dark:text-rose-200/90" title="Vincolo stesso giorno / stessa persona">
             Già assegnato in questo giorno
           </p>
+        ) : null}
+        {item.kind === "sala" && salaAreaSelectOptions && salaAreaSelectOptions.length > 0 && deleteSalaPlanning ? (
+          <UpdatePlanningSalaClinicalAreaRow
+            shiftItemId={item.id}
+            planId={deleteSalaPlanning.planId}
+            yearMonth={deleteSalaPlanning.yearMonth}
+            areas={salaAreaSelectOptions}
+            currentClinicalAreaId={item.clinical_area_id}
+          />
         ) : null}
         {item.kind === "sala" && deleteSalaPlanning ? (
           <DeletePlanningSalaSlotForm
@@ -296,8 +405,12 @@ function TurniItemRow({
         <div className="flex items-center gap-2">
         {canEdit ? (
           <select
-            className="h-9 min-w-[10.5rem] rounded-md border border-input bg-card px-2 text-sm"
-            title={canEdit ? "Salvasubito al cambio" : titleWhenReadOnly}
+            className="h-9 min-w-[10.5rem] max-w-[min(100vw-2rem,22rem)] rounded-md border border-input bg-card px-2 text-sm"
+            title={
+              assigneeGroups.useGroupedSelect
+                ? "Salvataggio al cambio. In alto: specializzandi la cui area formativa abituale coincide con il tipo di sala di questo slot (suggerimento, non obbligo)."
+                : "Salvasubito al cambio"
+            }
             disabled={isSaving}
             value={item.assigned_to ?? ""}
             onChange={(e) => {
@@ -306,15 +419,48 @@ function TurniItemRow({
             }}
           >
             <option value="">—</option>
-            {assigneeOptions.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.full_name?.trim() || u.email?.trim() || u.id}
-              </option>
-            ))}
+            {assigneeGroups.useGroupedSelect ? (
+              <>
+                <optgroup label="Suggeriti · area formativa come questo turno">
+                  {assigneeGroups.suggested.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {assigneeOptionLabel(u)}
+                    </option>
+                  ))}
+                </optgroup>
+                {assigneeGroups.others.length > 0 ? (
+                  <optgroup label="Altri specializzandi">
+                    {assigneeGroups.others.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {assigneeOptionLabel(u)}
+                      </option>
+                    ))}
+                  </optgroup>
+                ) : null}
+              </>
+            ) : (
+              assigneeGroups.others.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {assigneeOptionLabel(u)}
+                </option>
+              ))
+            )}
           </select>
         ) : (
-          <span className="text-sm text-muted-foreground" title={titleWhenReadOnly}>
+          <span
+            className="text-sm text-muted-foreground"
+            title={
+              assigneeMatchesAreaHint
+                ? `${titleWhenReadOnly} · Area formativa abituale allineata a questo turno.`
+                : titleWhenReadOnly
+            }
+          >
             {personLabel(assigneeOptions, item.assigned_to)}
+            {assigneeMatchesAreaHint ? (
+              <span className="ml-1 text-xs text-emerald-700 dark:text-emerald-400" aria-hidden>
+                ✓
+              </span>
+            ) : null}
           </span>
         )}
         <span className="inline-flex w-6 justify-center text-base" aria-live="polite" aria-atomic>
@@ -344,6 +490,7 @@ function BlockSection({
   conflictItemIds,
   addSalaSlot,
   deleteSalaPlanning,
+  salaAreaSelectOptions,
 }: {
   title: string;
   timeHint?: string;
@@ -366,6 +513,7 @@ function BlockSection({
     locations: SalaAddOption[];
   } | null;
   deleteSalaPlanning?: { planId: string; yearMonth: string } | null;
+  salaAreaSelectOptions?: SalaAddOption[];
 }) {
   const conflictSet = useMemo(() => new Set(conflictItemIds), [conflictItemIds]);
   const h = useId();
@@ -404,6 +552,7 @@ function BlockSection({
               isConflictHighlight={conflictSet.has(item.id)}
               onAssign={(userId) => onAssignItem(item.id, userId)}
               deleteSalaPlanning={deleteSalaPlanning}
+              salaAreaSelectOptions={salaAreaSelectOptions}
             />
           ))}
         </div>
@@ -434,6 +583,7 @@ function DayCard({
   conflictItemIds,
   salaPlanningAdd,
   salaDeletePlanning,
+  salaAreaSelectOptions,
 }: {
   date: string;
   items: ShiftItemRow[];
@@ -448,6 +598,7 @@ function DayCard({
   /** Aggiungi slot sala (admin): mattina/pomeriggio dall’anagrafica sale. */
   salaPlanningAdd?: { planId: string; yearMonth: string; locations: SalaAddOption[] } | null;
   salaDeletePlanning?: { planId: string; yearMonth: string } | null;
+  salaAreaSelectOptions?: SalaAddOption[];
 }) {
   const g = splitByBlock(items);
   const addMattina = salaPlanningAdd
@@ -488,6 +639,7 @@ function DayCard({
           conflictItemIds={conflictItemIds}
           addSalaSlot={addMattina}
           deleteSalaPlanning={salaDeletePlanning}
+          salaAreaSelectOptions={salaAreaSelectOptions}
         />
         <BlockSection
           title="Pomeriggio"
@@ -505,6 +657,7 @@ function DayCard({
           conflictItemIds={conflictItemIds}
           addSalaSlot={addPomeriggio}
           deleteSalaPlanning={salaDeletePlanning}
+          salaAreaSelectOptions={salaAreaSelectOptions}
         />
         <BlockSection
           title="Ambulatorio"
@@ -589,6 +742,8 @@ export function TurniMonthView({
         typeof r.name === "string" &&
         typeof r.specialty === "string" &&
         r.specialty.length > 0 &&
+        typeof r.clinicalAreaId === "string" &&
+        r.clinicalAreaId.length > 0 &&
         (r.roomName === null || typeof r.roomName === "string"),
     );
   }, [salaLocationOptions]);
@@ -596,7 +751,7 @@ export function TurniMonthView({
   const nameById = useCallback(
     (id: string) => {
       const o = assigneeOptions.find((u) => u.id === id);
-      return o?.full_name?.trim() || o?.email?.trim() || id;
+      return o?.list_label.trim() || o?.full_name?.trim() || o?.email?.trim() || id;
     },
     [assigneeOptions],
   );
@@ -755,7 +910,7 @@ export function TurniMonthView({
               <option value="">Solo assegnato a…</option>
               {assigneeOptions.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.full_name?.trim() || u.email?.trim() || u.id}
+                  {u.list_label.trim() || u.full_name?.trim() || u.email?.trim() || u.id}
                 </option>
               ))}
             </select>
@@ -845,6 +1000,7 @@ export function TurniMonthView({
               conflictItemIds={conflictItemIds}
               salaPlanningAdd={salaPlanningAdd}
               salaDeletePlanning={salaDeletePlanning}
+              salaAreaSelectOptions={salaLocationsForPlanning}
             />
           ))
         )}

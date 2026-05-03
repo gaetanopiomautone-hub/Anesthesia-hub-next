@@ -1,6 +1,7 @@
 /**
  * Parser Excel + generazione righe per turnistica mensile.
- * Non assegna utenti: solo struttura turni (sale, ambulatorio, reperibilità).
+ * Di default non assegna utenti: solo struttura turni (sale, ambulatorio, reperibilità).
+ * `assigned_to` è opzionale (es. anteprima/slot manuali server-side): se presente, va validato in import come specializzando assegnabile.
  */
 
 import { eachDayOfInterval, endOfMonth, format, getISODay, isWeekend, startOfMonth } from "date-fns";
@@ -31,6 +32,8 @@ export type ShiftItemDraft = {
   room_name: string | null;
   specialty: string | null;
   source: ShiftItemSource;
+  /** Se valorizzato, l’import deve verificarlo server-side (`assertUserIdIsAssignableTrainee`). Il parser Excel oggi non lo imposta. */
+  assigned_to?: string | null;
 };
 
 /** Riga uscita da Excel (reparti esclusi già filtrati). */

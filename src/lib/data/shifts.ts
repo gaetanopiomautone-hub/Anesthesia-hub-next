@@ -1,7 +1,21 @@
 import type { CurrentUserProfile } from "@/lib/auth/get-current-user-profile";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { canViewAllShifts } from "@/lib/domain/shift-permissions";
+import { pickSpecializzandiProfilesEmbed } from "@/lib/domain/specializzandi-embed";
+import { ASSEGNAZIONE_LABEL_IT } from "@/lib/domain/specializzando-assignment";
 import { normalizeShiftStatus, type ShiftRow, type ShiftType } from "@/lib/domain/shift-shared";
+import { profileDisplayName } from "@/lib/utils/profile-display";
+
+/** Solo specializzandi attivi con profilo formato (anno + assegnazione) per gli elenchi sala/piano mensile. */
+export type AssignableShiftUserOption = {
+  id: string;
+  full_name: string | null;
+  email: string | null;
+  anno_specialita: number;
+  assegnazione: string;
+  /** Nome cognome · N° anno · label assegnazione (per `<select>` e tooltip). */
+  list_label: string;
+};
 
 /** Prefer canonical prod columns first (user_id), then dev/schema.sql variants. */
 const ASSIGNEE_COLUMNS = ["user_id", "assignee_profile_id", "assignee_id"] as const;
@@ -87,7 +101,7 @@ export async function listShiftsInMonth(profile: CurrentUserProfile, params: { m
 
   const { data: assignees, error: assigneesError } = await supabase
     .from("profiles")
-    .select("id, full_name, email")
+    .select("id, nome, cognome, email")
     .in("id", profileIds);
 
   if (assigneesError) {
@@ -95,7 +109,18 @@ export async function listShiftsInMonth(profile: CurrentUserProfile, params: { m
   }
 
   const assigneeById = new Map(
-    (assignees ?? []).map((row) => [String(row.id), { id: String(row.id), full_name: row.full_name ?? null, email: row.email ?? null }]),
+    (assignees ?? []).map((row) => {
+      const id = String(row.id);
+      const email = row.email ?? null;
+      return [
+        id,
+        {
+          id,
+          full_name: profileDisplayName({ nome: row.nome, cognome: row.cognome, email }) || null,
+          email,
+        },
+      ];
+    }),
   );
 
   return {
@@ -157,12 +182,23 @@ export async function listSubmittedShiftsInMonth(profile: CurrentUserProfile, pa
   const profileIds = Array.from(new Set(normalizedRows.flatMap((row) => [row.user_id, row.proposed_by]).filter(Boolean)));
   if (profileIds.length === 0) return normalizedRows;
 
-  const { data: profiles, error: profilesError } = await supabase.from("profiles").select("id, full_name, email").in("id", profileIds);
+  const { data: profiles, error: profilesError } = await supabase.from("profiles").select("id, nome, cognome, email").in("id", profileIds);
   if (profilesError) {
     throw new Error(`profiles query failed: ${profilesError.message}`);
   }
   const profileById = new Map(
-    (profiles ?? []).map((row) => [String(row.id), { id: String(row.id), full_name: row.full_name ?? null, email: row.email ?? null }]),
+    (profiles ?? []).map((row) => {
+      const id = String(row.id);
+      const email = row.email ?? null;
+      return [
+        id,
+        {
+          id,
+          full_name: profileDisplayName({ nome: row.nome, cognome: row.cognome, email }) || null,
+          email,
+        },
+      ];
+    }),
   );
   return normalizedRows.map((row) => ({
     ...row,
@@ -180,15 +216,61 @@ function resolveShiftAssigneeColumn(rows: ShiftRaw[]) {
   return null;
 }
 
-export async function listAssignableUsers() {
+export async function listAssignableUsers(): Promise<AssignableShiftUserOption[]> {
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, full_name, email")
+    .select(
+      `
+      id,
+      nome,
+      cognome,
+      email,
+      specializzandi_profiles (
+        anno_specialita,
+        assegnazione
+      )
+    `,
+    )
     .eq("is_active", true)
-    .in("role", ["specializzando", "tutor"])
-    .order("full_name", { ascending: true });
+    .eq("role", "specializzando")
+    .order("cognome", { ascending: true })
+    .order("nome", { ascending: true });
 
   if (error) throw new Error(`assignable users query failed: ${error.message}`);
-  return (data ?? []).map((u) => ({ id: String(u.id), full_name: u.full_name ?? null, email: u.email ?? null }));
+
+  const rows = (data ?? []) as {
+    id: string;
+    nome: string;
+    cognome: string;
+    email: string | null;
+    specializzandi_profiles: unknown;
+  }[];
+
+  return rows.flatMap((u) => {
+    const email = u.email ?? null;
+    const full_name = profileDisplayName({ nome: u.nome, cognome: u.cognome, email }) || null;
+    const spez = pickSpecializzandiProfilesEmbed(u.specializzandi_profiles);
+    if (!spez) {
+      return [];
+    }
+    const assegLab =
+      ASSEGNAZIONE_LABEL_IT[spez.assegnazione as keyof typeof ASSEGNAZIONE_LABEL_IT] ?? spez.assegnazione;
+    const bits = [
+      full_name?.trim() || email?.trim() || String(u.id),
+      `${spez.anno_specialita}°`,
+      assegLab,
+    ].filter(Boolean);
+    const list_label = bits.join(" · ");
+    return [
+      {
+        id: String(u.id),
+        full_name,
+        email,
+        anno_specialita: spez.anno_specialita,
+        assegnazione: spez.assegnazione,
+        list_label,
+      },
+    ];
+  });
 }

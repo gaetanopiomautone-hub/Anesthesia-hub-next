@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { requireSection } from "@/lib/auth/get-current-user-profile";
 import { listPlanningChangeLogsByPlanId } from "@/lib/data/planning-change-log";
+import { listClinicalAreasActive } from "@/lib/data/clinical-areas";
 import { getMonthlyShiftPlanByYearMonth, listShiftItemsByPlanId } from "@/lib/data/monthly-shift-plans";
 import { listAssignableUsers } from "@/lib/data/shifts";
 import { getMonthContext } from "@/lib/dates/getMonthContext";
@@ -20,22 +21,6 @@ type TurniPageProps = {
     error?: string;
   }>;
 };
-
-function normalizeKey(text: string) {
-  return text.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
-function extractPlanningSpecialty(item: { specialty: string | null; room_name: string | null; label: string }) {
-  const s = item.specialty?.trim();
-  if (s) return s;
-  const label = item.label?.trim() ?? "";
-  const room = item.room_name?.trim() ?? "";
-  if (!label) return "";
-  if (!room) return label;
-  if (!label.toLowerCase().startsWith(room.toLowerCase())) return label;
-  const tail = label.slice(room.length).replace(/^[-–—|:/\s]+/, "").trim();
-  return tail || label;
-}
 
 export default async function TurniPage({ searchParams }: TurniPageProps) {
   const profile = await requireSection("turni");
@@ -53,31 +38,15 @@ export default async function TurniPage({ searchParams }: TurniPageProps) {
   const items = plan ? await listShiftItemsByPlanId(plan.id) : [];
   const changeLogs = plan && profile.role === "admin" ? await listPlanningChangeLogsByPlanId(plan.id, 250) : [];
   const assigneeOptions = await listAssignableUsers();
-  const specialtyOptionsMap = new Map<
-    string,
-    {
-      key: string;
-      name: string;
-      specialty: string;
-      roomName: string | null;
-      source: "planning";
-    }
-  >();
-  for (const item of items) {
-    if (item.kind !== "sala") continue;
-    const specialty = extractPlanningSpecialty(item);
-    if (!specialty) continue;
-    const n = normalizeKey(specialty);
-    if (specialtyOptionsMap.has(n)) continue;
-    specialtyOptionsMap.set(n, {
-      key: `spec:${n}`,
-      name: specialty,
-      specialty,
-      roomName: item.room_name?.trim() || null,
-      source: "planning",
-    });
-  }
-  const finalSalaOptions = Array.from(specialtyOptionsMap.values()).sort((a, b) => a.name.localeCompare(b.name, "it"));
+  const clinicalAreas = await listClinicalAreasActive();
+  const finalSalaOptions = clinicalAreas.map((a) => ({
+    key: a.id,
+    name: `${a.name} · ${a.code}`,
+    specialty: a.name,
+    roomName: null as string | null,
+    clinicalAreaId: a.id,
+    source: "planning" as const,
+  }));
 
   return (
     <div className="space-y-6">

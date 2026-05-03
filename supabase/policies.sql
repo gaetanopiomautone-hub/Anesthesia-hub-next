@@ -69,25 +69,41 @@ $$;
 
 -- ---------------------------------------------------------------------------
 -- profiles
+-- Esempio policy SELECT equivalente inline:
+--   create policy profiles_select_own_scheduler_admin on public.profiles for select to authenticated
+--     using (auth.uid() = id or public.is_scheduler_or_admin());
 -- Rules:
--- - user reads own profile
--- - admin can read all
--- - user updates only own row and cannot escalate role/deactivate/edit email
+-- - select: sé stesso oppure tutor/admin (anagrafiche per pianificazione)
+-- - insert: solo admin (account creati dall’admin; service role bypassa RLS comunque)
+-- - update: admin su tutti i campi; utente aggiorna solo campo contatto/esposizione nome
+--   senza modificare email, ruolo o is_active
 -- ---------------------------------------------------------------------------
 
 alter table public.profiles enable row level security;
 
+-- Nome legacy (solo drop); la policy vigente è `profiles_select_own_scheduler_admin` sotto.
 drop policy if exists "profiles_select_own_or_admin" on public.profiles;
-create policy "profiles_select_own_or_admin"
+drop policy if exists "profiles_select_own_scheduler_admin" on public.profiles;
+
+create policy "profiles_select_own_scheduler_admin"
 on public.profiles
 for select
 to authenticated
 using (
   auth.uid() = id
-  or public.get_my_role() = 'admin'
+  or public.is_scheduler_or_admin()
 );
 
+drop policy if exists "profiles_insert_admin" on public.profiles;
+
+create policy "profiles_insert_admin"
+on public.profiles
+for insert
+to authenticated
+with check (public.is_admin());
+
 drop policy if exists "profiles_update_own_limited_fields" on public.profiles;
+
 create policy "profiles_update_own_limited_fields"
 on public.profiles
 for update
@@ -104,6 +120,60 @@ with check (
       and p.is_active = profiles.is_active
   )
 );
+
+drop policy if exists "profiles_update_admin" on public.profiles;
+
+create policy "profiles_update_admin"
+on public.profiles
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+-- ---------------------------------------------------------------------------
+-- specializzandi_profiles (solo colonne dedicate ai specializzandi)
+-- Rules:
+-- - select: proprietario del profilo oppure tutor/admin
+-- - insert/update/delete: solo admin (o service role nella server action crea-utente)
+-- ---------------------------------------------------------------------------
+
+alter table public.specializzandi_profiles enable row level security;
+
+drop policy if exists "specializzandi_profiles_select_own_or_scheduler_admin" on public.specializzandi_profiles;
+
+create policy "specializzandi_profiles_select_own_or_scheduler_admin"
+on public.specializzandi_profiles
+for select
+to authenticated
+using (
+  auth.uid() = user_id
+  or public.is_scheduler_or_admin()
+);
+
+drop policy if exists "specializzandi_profiles_insert_admin" on public.specializzandi_profiles;
+
+create policy "specializzandi_profiles_insert_admin"
+on public.specializzandi_profiles
+for insert
+to authenticated
+with check (public.is_admin());
+
+drop policy if exists "specializzandi_profiles_update_admin" on public.specializzandi_profiles;
+
+create policy "specializzandi_profiles_update_admin"
+on public.specializzandi_profiles
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "specializzandi_profiles_delete_admin" on public.specializzandi_profiles;
+
+create policy "specializzandi_profiles_delete_admin"
+on public.specializzandi_profiles
+for delete
+to authenticated
+using (public.is_admin());
 
 -- ---------------------------------------------------------------------------
 -- leave_requests
@@ -346,6 +416,41 @@ on public.learning_resources
 for delete
 to authenticated
 using (public.get_my_role() = 'admin');
+
+-- ---------------------------------------------------------------------------
+-- clinical_areas (area tipo turno sala; distinta da clinical_locations fisiche)
+-- Rules:
+-- - select: admin, tutor, specializzando (lettura anche is_active = false per storico in UI)
+-- - insert/update: solo admin (disattivazione = is_active, nessun delete da app)
+-- ---------------------------------------------------------------------------
+
+alter table public.clinical_areas enable row level security;
+
+drop policy if exists "clinical_areas_select_planning_roles" on public.clinical_areas;
+create policy "clinical_areas_select_planning_roles"
+on public.clinical_areas
+for select
+to authenticated
+using (
+  public.is_admin()
+  or public.is_tutor()
+  or public.is_specializzando()
+);
+
+drop policy if exists "clinical_areas_insert_admin" on public.clinical_areas;
+create policy "clinical_areas_insert_admin"
+on public.clinical_areas
+for insert
+to authenticated
+with check (public.is_admin());
+
+drop policy if exists "clinical_areas_update_admin" on public.clinical_areas;
+create policy "clinical_areas_update_admin"
+on public.clinical_areas
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
 
 -- ---------------------------------------------------------------------------
 -- monthly_shift_plans
