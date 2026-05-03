@@ -93,15 +93,18 @@ export async function createUserByAdmin(formData: FormData): Promise<CreateUserB
   }
 
   const base = siteUrlForAuthRedirect();
-  const inviteOptions: {
-    data: Record<string, unknown>;
-    redirectTo?: string;
-  } = {
-    data: meta as Record<string, unknown>,
-  };
-  if (base) {
-    inviteOptions.redirectTo = `${base}/set-password`;
+  if (!base) {
+    return {
+      ok: false,
+      error:
+        "NEXT_PUBLIC_SITE_URL non configurato nell’ambiente di deploy: senza questo valore gli inviti usano solo il Site URL del progetto Supabase (spesso solo la homepage) senza passare da /set-password. Imposta l’URL pubblico dell’app (es. https://…hosted.app) e includi nei Redirect URLs sia la root sia …/set-password.",
+    };
   }
+
+  const inviteOptions = {
+    data: meta as Record<string, unknown>,
+    redirectTo: `${base}/set-password`,
+  };
 
   const { error } = await supabase.auth.admin.inviteUserByEmail(email, inviteOptions);
 
