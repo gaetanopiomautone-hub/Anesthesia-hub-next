@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 
+import { logoutAction } from "@/app/(auth)/login/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { createBrowserSupabaseClient } from "@/lib/supabase/client";
@@ -24,6 +25,14 @@ function urlLooksLikeSupabaseAuthCallback(): boolean {
   if (h.includes("refresh_token=")) return true;
   if (h.includes("error=") || h.includes("error_code=") || h.includes("error_description=")) return true;
   return false;
+}
+
+/** True se l’URL contiene ancora token da consumare (PKCE o implicit grant), non solo messaggi di errore. */
+function urlHasConsumableAuthExchange(): boolean {
+  if (typeof window === "undefined") return false;
+  if (window.location.search.includes("code=")) return true;
+  const h = window.location.hash.replace(/^#/, "");
+  return h.includes("access_token=");
 }
 
 function readAuthErrorFromUrl(): string | null {
@@ -64,6 +73,9 @@ export function SetPasswordForm() {
   const [confirm, setConfirm] = useState("");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [sessionEmail, setSessionEmail] = useState<string | null>(null);
+  const openedWithInviteOrResetLink = useRef(false);
+  const [logoutPending, startLogout] = useTransition();
 
   useEffect(() => {
     const supabase = createBrowserSupabaseClient();
@@ -72,17 +84,42 @@ export function SetPasswordForm() {
     async function resolveSession() {
       const hadAuthParamsOnLanding = urlLooksLikeSupabaseAuthCallback();
       const authErrorOnLanding = readAuthErrorFromUrl();
+      const consumable = urlHasConsumableAuthExchange();
+      openedWithInviteOrResetLink.current = hadAuthParamsOnLanding;
+
+      // Sessione già presente (es. admin) blocca l’exchange del link: esci in locale così il token in URL viene consumato per l’utente giusto.
+      if (consumable) {
+        await supabase.auth.signOut({ scope: "local" });
+      }
+
+      // Errore OAuth in query/hash senza token da scambiare → non mostrare il form con un’altra sessione.
+      if (hadAuthParamsOnLanding && !consumable && authErrorOnLanding) {
+        setNoSessionInfo({ variant: "bad_or_used", detail: authErrorOnLanding });
+        setStatus("no_session");
+        return;
+      }
 
       const {
-        data: { session: initial },
+        data: { session: first },
       } = await supabase.auth.getSession();
-      if (initial) {
+
+      if (first && !hadAuthParamsOnLanding) {
+        setSessionEmail(first.user.email ?? null);
+        setStatus("ready");
+        return;
+      }
+
+      if (first && hadAuthParamsOnLanding && consumable) {
+        setSessionEmail(first.user.email ?? null);
         setStatus("ready");
         return;
       }
 
       const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-        if (session) setStatus("ready");
+        if (session) {
+          setSessionEmail(session.user.email ?? null);
+          setStatus("ready");
+        }
       });
       unsubscribe = () => listener.subscription.unsubscribe();
 
@@ -91,6 +128,7 @@ export function SetPasswordForm() {
         data: { session: again },
       } = await supabase.auth.getSession();
       if (again) {
+        setSessionEmail(again.user.email ?? null);
         setStatus("ready");
         return;
       }
@@ -100,6 +138,7 @@ export function SetPasswordForm() {
         data: { session: final },
       } = await supabase.auth.getSession();
       if (final) {
+        setSessionEmail(final.user.email ?? null);
         setStatus("ready");
         return;
       }
@@ -131,8 +170,26 @@ export function SetPasswordForm() {
       return;
     }
 
-    setSubmitting(true);
     const supabase = createBrowserSupabaseClient();
+    const {
+      data: { session },
+      error: sessionErr,
+    } = await supabase.auth.getSession();
+
+    if (sessionErr || !session?.user) {
+      setSubmitError("Sessione non disponibile. Ricarica la pagina o apri di nuovo il link dall’email.");
+      return;
+    }
+
+    if (openedWithInviteOrResetLink.current) {
+      const email = session.user.email?.trim().toLowerCase();
+      if (!email) {
+        setSubmitError("Impossibile verificare l’account: email assente sulla sessione. Apri il link in finestra anonima dopo logout.");
+        return;
+      }
+    }
+
+    setSubmitting(true);
     const { error } = await supabase.auth.updateUser({ password });
     setSubmitting(false);
 
@@ -209,7 +266,34 @@ export function SetPasswordForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
+    <div className="space-y-5">
+      {sessionEmail ? (
+        <div className="rounded-lg border border-border bg-secondary/40 px-3 py-2 text-xs text-muted-foreground">
+          <p>
+            Stai impostando la password per: <span className="font-medium text-foreground">{sessionEmail}</span>
+          </p>
+          {openedWithInviteOrResetLink.current ? (
+            <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span>Se non è l’utente previsto:</span>
+              <button
+                type="button"
+                disabled={logoutPending}
+                className="font-medium text-primary underline underline-offset-2 hover:text-primary/90 disabled:opacity-50"
+                onClick={() =>
+                  startLogout(() => {
+                    void logoutAction();
+                  })
+                }
+              >
+                {logoutPending ? "Uscita…" : "Esci dall’account"}
+              </button>
+              <span>e riapri il link in finestra anonima.</span>
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      <form onSubmit={handleSubmit} className="space-y-5">
       <div>
         <label className="mb-2 block text-sm font-medium text-foreground">Nuova password</label>
         <Input
@@ -247,6 +331,7 @@ export function SetPasswordForm() {
       <p className="text-xs text-muted-foreground">
         Dopo il salvataggio verrai indirizzato alla dashboard. Se il link è per il primo accesso, usa credenziali che ricorderai per gli accessi futuri.
       </p>
-    </form>
+      </form>
+    </div>
   );
 }
