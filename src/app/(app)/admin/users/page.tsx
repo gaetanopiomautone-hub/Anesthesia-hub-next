@@ -94,6 +94,14 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
         <p className="rounded-xl border border-border bg-secondary/60 px-4 py-3 text-sm">Utente disattivato.</p>
       ) : okBanner === "reactivated" ? (
         <p className="rounded-xl border border-border bg-secondary/60 px-4 py-3 text-sm">Utente riattivato.</p>
+      ) : okBanner === "pw_link_invite" ? (
+        <p className="rounded-xl border border-border bg-secondary/60 px-4 py-3 text-sm">
+          Invito inviato nuovamente: l’utente riceverà un link per completare la registrazione e impostare la password su /set-password.
+        </p>
+      ) : okBanner === "pw_link_reset" ? (
+        <p className="rounded-xl border border-border bg-secondary/60 px-4 py-3 text-sm">
+          Email inviata con un link per impostare la password (reimpostazione o secondo tentativo su invito): l’utente completerà il flusso su /set-password.
+        </p>
       ) : null}
 
       <Card title="Elenco utenti" description={`${rows.length} profili caricati dalla tabella pubblica.`}>

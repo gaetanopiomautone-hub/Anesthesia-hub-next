@@ -1,5 +1,6 @@
 "use server";
 
+import { createClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -8,6 +9,8 @@ import { ASSEGNAZIONE_SPECIALIZZANDO_VALUES } from "@/lib/domain/specializzando-
 import type { AppRole } from "@/lib/auth/roles";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service-role";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getSupabaseEnv } from "@/lib/supabase/env";
+import { siteUrlForAuthRedirect } from "@/lib/supabase/site-url";
 
 export type AdminUserMutationResult =
   | { ok: true; message?: string }
@@ -46,6 +49,81 @@ export async function setUserActiveAdmin(formData: FormData) {
 
   revalidatePath("/admin/users");
   redirect(`/admin/users?ok=${nextActive ? "reactivated" : "deactivated"}`);
+}
+
+/** Invito (email non confermata) oppure reset password (confermata); medesima destinazione `/set-password`. */
+export async function sendPasswordSetupLinkAdmin(formData: FormData) {
+  await requireRole(["admin"]);
+
+  const userId = String(formData.get("user_id") ?? "").trim();
+  if (!userId) {
+    redirect("/admin/users?e=" + encodeURIComponent("Utente non valido."));
+  }
+
+  let svc;
+  try {
+    svc = createServiceRoleSupabaseClient();
+  } catch {
+    redirect("/admin/users?e=" + encodeURIComponent("Configurazione server incompleta (chiave service role)."));
+  }
+
+  const base = siteUrlForAuthRedirect();
+  if (!base) {
+    redirect(
+      "/admin/users?e=" + encodeURIComponent("NEXT_PUBLIC_SITE_URL non configurato: serve l’URL pubblico per i link nelle email."),
+    );
+  }
+  const redirectTo = `${base}/set-password`;
+
+  const {
+    data: authData,
+    error: authLookupErr,
+  } = await svc.auth.admin.getUserById(userId);
+
+  if (authLookupErr || !authData?.user) {
+    redirect("/admin/users?e=" + encodeURIComponent(authLookupErr?.message ?? "Utente non trovato in Auth."));
+  }
+
+  const email = authData.user.email?.trim().toLowerCase();
+  if (!email) {
+    redirect("/admin/users?e=" + encodeURIComponent("Email mancante per questo utente."));
+  }
+
+  const confirmed = Boolean(authData.user.email_confirmed_at);
+
+  if (!confirmed) {
+    const { error: inviteErr } = await svc.auth.admin.inviteUserByEmail(email, {
+      redirectTo,
+      data: (authData.user.user_metadata ?? {}) as Record<string, unknown>,
+    });
+
+    if (!inviteErr) {
+      revalidatePath("/admin/users");
+      redirect("/admin/users?ok=pw_link_invite");
+    }
+
+    const msg = inviteErr.message.toLowerCase();
+    const duplicate =
+      msg.includes("already registered") ||
+      msg.includes("already been registered") ||
+      msg.includes("user already exists");
+
+    if (!duplicate) {
+      redirect("/admin/users?e=" + encodeURIComponent(inviteErr.message));
+    }
+    // Ripiego: secondo invito formale sullo stesso indirizzo a volte è rifiutato; il reset porta comunque a /set-password.
+  }
+
+  const { url, anonKey } = getSupabaseEnv();
+  const publicClient = createClient(url, anonKey);
+  const { error: resetErr } = await publicClient.auth.resetPasswordForEmail(email, { redirectTo });
+
+  if (resetErr) {
+    redirect("/admin/users?e=" + encodeURIComponent(resetErr.message));
+  }
+
+  revalidatePath("/admin/users");
+  redirect("/admin/users?ok=pw_link_reset");
 }
 
 export async function updateUserAdmin(formData: FormData): Promise<AdminUserMutationResult> {

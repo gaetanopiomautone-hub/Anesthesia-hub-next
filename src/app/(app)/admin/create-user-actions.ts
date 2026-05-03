@@ -5,6 +5,7 @@ import type { AppRole } from "@/lib/auth/roles";
 import type { AssegnazioneSpecializzando } from "@/lib/domain/specializzando-assignment";
 import { ASSEGNAZIONE_SPECIALIZZANDO_VALUES } from "@/lib/domain/specializzando-assignment";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service-role";
+import { siteUrlForAuthRedirect } from "@/lib/supabase/site-url";
 
 export type CreateUserByAdminResult =
   | { ok: true; message: string }
@@ -15,16 +16,6 @@ function parseOptionalInt(formData: FormData, key: string): number | null {
   if (!raw) return null;
   const n = Number.parseInt(raw, 10);
   return Number.isFinite(n) ? n : null;
-}
-
-function siteUrlForInviteRedirect(): string | undefined {
-  const explicit = process.env.NEXT_PUBLIC_SITE_URL?.trim().replace(/\/+$/, "");
-  if (explicit) return explicit;
-
-  const vercel = process.env.VERCEL_URL?.trim();
-  if (vercel) return `https://${vercel}`;
-
-  return undefined;
 }
 
 /** Flusso A: invite email Supabase Auth; l’utente imposta password dal link (nessuna password sul form). */
@@ -100,7 +91,7 @@ export async function createUserByAdmin(formData: FormData): Promise<CreateUserB
     meta.assegnazione = assegnazioneRaw as AssegnazioneSpecializzando;
   }
 
-  const base = siteUrlForInviteRedirect();
+  const base = siteUrlForAuthRedirect();
   const inviteOptions: {
     data: Record<string, unknown>;
     redirectTo?: string;
