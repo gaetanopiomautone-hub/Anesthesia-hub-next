@@ -108,7 +108,7 @@ export async function createUserByAdmin(formData: FormData): Promise<CreateUserB
     data: meta as Record<string, unknown>,
   };
   if (base) {
-    inviteOptions.redirectTo = `${base}/login`;
+    inviteOptions.redirectTo = `${base}/set-password`;
   }
 
   const { error } = await supabase.auth.admin.inviteUserByEmail(email, inviteOptions);

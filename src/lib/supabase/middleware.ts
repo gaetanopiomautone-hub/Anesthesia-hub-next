@@ -40,11 +40,13 @@ export async function updateSession(request: NextRequest, options?: { skipAuthRe
     return response;
   }
 
-  const isAuthRoute = request.nextUrl.pathname.startsWith("/login");
-  const isForbiddenRoute = request.nextUrl.pathname.startsWith("/forbidden");
-  const isPublicAsset =
-    request.nextUrl.pathname.startsWith("/_next") ||
-    request.nextUrl.pathname === "/favicon.ico";
+  const pathname = request.nextUrl.pathname;
+  const isAuthRoute =
+    pathname.startsWith("/login") ||
+    pathname === "/set-password" ||
+    pathname.startsWith("/auth/callback");
+  const isForbiddenRoute = pathname.startsWith("/forbidden");
+  const isPublicAsset = pathname.startsWith("/_next") || pathname === "/favicon.ico";
 
   if (!user && !isAuthRoute && !isForbiddenRoute && !isPublicAsset) {
     const url = request.nextUrl.clone();

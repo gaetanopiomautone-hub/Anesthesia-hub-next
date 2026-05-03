@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { AuthInviteRedirect } from "@/components/auth/auth-invite-redirect";
 import { LoginForm } from "@/components/forms/login-form";
 import { getCurrentUserProfile } from "@/lib/auth/get-current-user-profile";
 
@@ -27,6 +28,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         </p>
 
         <div className="mt-8">
+          <AuthInviteRedirect to="/set-password" />
           <LoginForm error={params?.error} />
         </div>
       </section>
