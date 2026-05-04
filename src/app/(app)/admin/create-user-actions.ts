@@ -1,5 +1,7 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
+
 import { requireRole } from "@/lib/auth/get-current-user-profile";
 import type { AppRole } from "@/lib/auth/roles";
 import type { AssegnazioneSpecializzando } from "@/lib/domain/specializzando-assignment";
@@ -106,7 +108,7 @@ export async function createUserByAdmin(formData: FormData): Promise<CreateUserB
     redirectTo: `${base}/set-password`,
   };
 
-  const { error } = await supabase.auth.admin.inviteUserByEmail(email, inviteOptions);
+  const { data: invited, error } = await supabase.auth.admin.inviteUserByEmail(email, inviteOptions);
 
   if (error) {
     const msg = error.message.toLowerCase();
@@ -115,6 +117,44 @@ export async function createUserByAdmin(formData: FormData): Promise<CreateUserB
     }
     return { ok: false, error: describeSupabaseAuthEmailError(error.message) };
   }
+
+  const userId = invited?.user?.id ?? null;
+
+  /** Allinea hub (profiles + specializzandi_profiles quando serve): copre anche trigger diverso o rollback parziali. */
+  if (userId) {
+    const { error: rpcErr } = await supabase.rpc("admin_apply_profile_update", {
+      p_user_id: userId,
+      p_nome: nome,
+      p_cognome: cognome,
+      p_telefono: telefono ?? "",
+      p_email: email,
+      p_is_active: true,
+      p_role: role,
+      p_anno: role === "specializzando" && annoSpecialita !== undefined ? annoSpecialita : null,
+      p_asseg:
+        role === "specializzando"
+          ? (assegnazioneRaw as AssegnazioneSpecializzando)
+          : null,
+    });
+
+    if (rpcErr) {
+      const { error: delErr } = await supabase.auth.admin.deleteUser(userId);
+      if (delErr) {
+        return {
+          ok: false,
+          error: `Salvataggio profilo fallito (${rpcErr.message}). Rimozione account Auth fallita (${delErr.message}); intervieni da Supabase Auth.`,
+        };
+      }
+      return {
+        ok: false,
+        error:
+          `Creazione utente annullata: ${rpcErr.message}. ` +
+          `Per uno specializzando servono sempre profilo applicativo + riga specializzandi_profiles.`,
+      };
+    }
+  }
+
+  revalidatePath("/admin/users");
 
   return {
     ok: true,
