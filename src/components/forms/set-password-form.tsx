@@ -35,6 +35,21 @@ function urlHasConsumableAuthExchange(): boolean {
   return h.includes("access_token=");
 }
 
+/**
+ * Fragment tipo invite/recovery (type=recovery|invite nel hash): access_token + refresh_token.
+ * Il client GoTrue a volte non persiste la sessione senza setSession esplicito dopo signOut.
+ */
+function parseImplicitGrantFromHash(): { access_token: string; refresh_token: string } | null {
+  if (typeof window === "undefined") return null;
+  const raw = window.location.hash.replace(/^#/, "");
+  if (!raw) return null;
+  const hp = new URLSearchParams(raw);
+  const access_token = hp.get("access_token");
+  const refresh_token = hp.get("refresh_token");
+  if (!access_token || !refresh_token) return null;
+  return { access_token, refresh_token };
+}
+
 function readAuthErrorFromUrl(): string | null {
   if (typeof window === "undefined") return null;
   try {
@@ -85,9 +100,41 @@ export function SetPasswordForm() {
       const hadAuthParamsOnLanding = urlLooksLikeSupabaseAuthCallback();
       const authErrorOnLanding = readAuthErrorFromUrl();
       const consumable = urlHasConsumableAuthExchange();
+      const implicit = parseImplicitGrantFromHash();
       openedWithInviteOrResetLink.current = hadAuthParamsOnLanding;
 
-      // Sessione già presente (es. admin) blocca l’exchange del link: esci in locale così il token in URL viene consumato per l’utente giusto.
+      // Implicit grant / recovery|invite nel fragment: setSession esplicito dopo aver tolto eventuale sessione concorrente.
+      if (implicit) {
+        await supabase.auth.signOut({ scope: "local" });
+        const { data: setData, error: setErr } = await supabase.auth.setSession({
+          access_token: implicit.access_token,
+          refresh_token: implicit.refresh_token,
+        });
+        if (setErr || !setData.session) {
+          setNoSessionInfo({
+            variant: "bad_or_used",
+            detail: setErr?.message ?? "Impossibile stabilire la sessione dal link (fragment).",
+          });
+          setStatus("no_session");
+          return;
+        }
+        const {
+          data: { session: verified },
+        } = await supabase.auth.getSession();
+        if (!verified) {
+          setNoSessionInfo({
+            variant: "bad_or_used",
+            detail: "Sessione non disponibile dopo setSession.",
+          });
+          setStatus("no_session");
+          return;
+        }
+        setSessionEmail(verified.user.email ?? null);
+        setStatus("ready");
+        return;
+      }
+
+      // PKCE (?code=): niente fragment con token; pulisci sessione locale così l’exchange usa il code.
       if (consumable) {
         await supabase.auth.signOut({ scope: "local" });
       }
