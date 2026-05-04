@@ -4,8 +4,11 @@ import { revalidatePath } from "next/cache";
 
 import { requireRole } from "@/lib/auth/get-current-user-profile";
 import type { AppRole } from "@/lib/auth/roles";
-import type { AssegnazioneSpecializzando } from "@/lib/domain/specializzando-assignment";
-import { ASSEGNAZIONE_SPECIALIZZANDO_VALUES } from "@/lib/domain/specializzando-assignment";
+import {
+  ASSEGNAZIONE_SPECIALIZZANDO_VALUES,
+  parseAssegnazioneFromForm,
+  type AssegnazioneSpecializzando,
+} from "@/lib/domain/specializzando-assignment";
 import { describeSupabaseAuthEmailError } from "@/lib/supabase/auth-email-errors";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service-role";
 import { siteUrlForAuthRedirect } from "@/lib/supabase/site-url";
@@ -24,7 +27,15 @@ function parseOptionalInt(formData: FormData, key: string): number | null {
 /** Flusso A: invite email Supabase Auth; l’utente imposta password dal link (nessuna password sul form). */
 export async function createUserByAdmin(formData: FormData): Promise<CreateUserByAdminResult> {
   await requireRole(["admin"]);
+  try {
+    return await runCreateUserByAdmin(formData);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Errore server: ${msg}` };
+  }
+}
 
+async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdminResult> {
   const nome = String(formData.get("nome") ?? "").trim();
   const cognome = String(formData.get("cognome") ?? "").trim();
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
@@ -50,6 +61,7 @@ export async function createUserByAdmin(formData: FormData): Promise<CreateUserB
   }
 
   let annoSpecialita: number | undefined;
+  let assegnazioneEnum: AssegnazioneSpecializzando | undefined;
 
   if (role === "specializzando") {
     if (
@@ -59,10 +71,16 @@ export async function createUserByAdmin(formData: FormData): Promise<CreateUserB
     ) {
       return { ok: false, error: "Anno di specialità obbligatorio (tra 1 e 5)." };
     }
-    if (!(ASSEGNAZIONE_SPECIALIZZANDO_VALUES as readonly string[]).includes(assegnazioneRaw)) {
-      return { ok: false, error: "Assegnazione obbligatoria e non valida." };
+    const parsedAsseg = parseAssegnazioneFromForm(assegnazioneRaw);
+    if (!parsedAsseg) {
+      return {
+        ok: false,
+        error:
+          "Assegnazione non valida: usa un valore dall’elenco (il database accetta enum tipo sala_base, sala_locoregionale, …).",
+      };
     }
     annoSpecialita = annoSpecialitaParsed;
+    assegnazioneEnum = parsedAsseg;
   } else {
     if (
       formData.has("anno_specialita") &&
@@ -89,9 +107,9 @@ export async function createUserByAdmin(formData: FormData): Promise<CreateUserB
   };
   if (telefono) meta.telefono = telefono;
 
-  if (role === "specializzando" && annoSpecialita !== undefined) {
+  if (role === "specializzando" && annoSpecialita !== undefined && assegnazioneEnum) {
     meta.anno_specialita = annoSpecialita;
-    meta.assegnazione = assegnazioneRaw as AssegnazioneSpecializzando;
+    meta.assegnazione = assegnazioneEnum;
   }
 
   const base = siteUrlForAuthRedirect();
@@ -131,10 +149,7 @@ export async function createUserByAdmin(formData: FormData): Promise<CreateUserB
       p_is_active: true,
       p_role: role,
       p_anno: role === "specializzando" && annoSpecialita !== undefined ? annoSpecialita : null,
-      p_asseg:
-        role === "specializzando"
-          ? (assegnazioneRaw as AssegnazioneSpecializzando)
-          : null,
+      p_asseg: role === "specializzando" && assegnazioneEnum ? assegnazioneEnum : null,
     });
 
     if (rpcErr) {

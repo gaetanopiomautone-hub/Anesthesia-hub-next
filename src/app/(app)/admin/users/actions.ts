@@ -5,7 +5,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { requireRole, requireUser } from "@/lib/auth/get-current-user-profile";
-import { ASSEGNAZIONE_SPECIALIZZANDO_VALUES } from "@/lib/domain/specializzando-assignment";
+import { parseAssegnazioneFromForm } from "@/lib/domain/specializzando-assignment";
 import type { AppRole } from "@/lib/auth/roles";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service-role";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -178,11 +178,12 @@ export async function updateUserAdmin(formData: FormData): Promise<AdminUserMuta
     ) {
       return { ok: false, error: "Anno di specialità obbligatorio (tra 1 e 5)." };
     }
-    if (!(ASSEGNAZIONE_SPECIALIZZANDO_VALUES as readonly string[]).includes(assegnazioneRaw)) {
+    const parsedAsseg = parseAssegnazioneFromForm(assegnazioneRaw);
+    if (!parsedAsseg) {
       return { ok: false, error: "Assegnazione non valida." };
     }
     annoSpecialita = annoSpecialitaParsed;
-    assegnazioneDb = assegnazioneRaw;
+    assegnazioneDb = parsedAsseg;
   } else {
     if (
       formData.has("anno_specialita") &&
