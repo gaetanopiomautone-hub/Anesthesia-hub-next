@@ -153,6 +153,16 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
     });
 
     if (rpcErr) {
+      console.error("[createUserByAdmin] admin_apply_profile_update failed", {
+        userId,
+        role,
+        annoSpecialita,
+        assegnazioneEnum,
+        message: rpcErr.message,
+        details: rpcErr.details,
+        hint: rpcErr.hint,
+        code: rpcErr.code,
+      });
       const { error: delErr } = await supabase.auth.admin.deleteUser(userId);
       if (delErr) {
         return {
