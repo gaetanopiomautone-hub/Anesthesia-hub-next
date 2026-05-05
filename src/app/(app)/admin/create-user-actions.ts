@@ -165,17 +165,13 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
       });
       const { error: delErr } = await supabase.auth.admin.deleteUser(userId);
       if (delErr) {
-        return {
-          ok: false,
-          error: `Salvataggio profilo fallito (${rpcErr.message}). Rimozione account Auth fallita (${delErr.message}); intervieni da Supabase Auth.`,
-        };
+        throw new Error(
+          `[RPC ERROR] ${rpcErr.message} | details=${rpcErr.details ?? "n/a"} | hint=${rpcErr.hint ?? "n/a"} | code=${rpcErr.code ?? "n/a"} | rollback=${delErr.message}`,
+        );
       }
-      return {
-        ok: false,
-        error:
-          `Creazione utente annullata: ${rpcErr.message}. ` +
-          `Per uno specializzando servono sempre profilo applicativo + riga specializzandi_profiles.`,
-      };
+      throw new Error(
+        `[RPC ERROR] ${rpcErr.message} | details=${rpcErr.details ?? "n/a"} | hint=${rpcErr.hint ?? "n/a"} | code=${rpcErr.code ?? "n/a"}`,
+      );
     }
   }
 
