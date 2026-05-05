@@ -163,11 +163,18 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
     });
 
     if (rpcErr) {
+      const skipRollback = skipRollbackAfterRpcInviteFailure();
+      const envRaw = process.env.DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL ?? "(unset)";
+      console.error("[createUserByAdmin] debug flags", {
+        skipRollback,
+        DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL: envRaw,
+      });
+
       const baseMsg =
         `[RPC ERROR] ${rpcErr.message} | details=${rpcErr.details ?? "n/a"} | ` +
-        `hint=${rpcErr.hint ?? "n/a"} | code=${rpcErr.code ?? "n/a"}`;
+        `hint=${rpcErr.hint ?? "n/a"} | code=${rpcErr.code ?? "n/a"} | ` +
+        `skipRollback=${skipRollback}`;
 
-      const skipRollback = skipRollbackAfterRpcInviteFailure();
       console.error("[createUserByAdmin] admin_apply_profile_update failed", {
         userId,
         role,
@@ -178,14 +185,15 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
         hint: rpcErr.hint,
         code: rpcErr.code,
         skipRollback,
+        DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL: envRaw,
       });
 
       if (skipRollback) {
         return {
           ok: false,
           error:
-            `${baseMsg} | debug: rollback Auth disattivo (DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL) — ` +
-            `userId=${userId}. L’account resta in Auth per ispezione; rimuovi l’env dopo il debug.`,
+            `${baseMsg} | debug env raw=${JSON.stringify(envRaw)} | rollback Auth OFF — userId=${userId}. ` +
+            `L’account resta in Auth per ispezione; rimuovi l’env dopo il debug.`,
         };
       }
 
