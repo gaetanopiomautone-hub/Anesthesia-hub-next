@@ -163,17 +163,9 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
     });
 
     if (rpcErr) {
-      const skipRollback = skipRollbackAfterRpcInviteFailure();
-      const envRaw = process.env.DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL ?? "(unset)";
-      console.error("[createUserByAdmin] debug flags", {
-        skipRollback,
-        DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL: envRaw,
-      });
-
       const baseMsg =
         `[RPC ERROR] ${rpcErr.message} | details=${rpcErr.details ?? "n/a"} | ` +
-        `hint=${rpcErr.hint ?? "n/a"} | code=${rpcErr.code ?? "n/a"} | ` +
-        `skipRollback=${skipRollback}`;
+        `hint=${rpcErr.hint ?? "n/a"} | code=${rpcErr.code ?? "n/a"}`;
 
       console.error("[createUserByAdmin] admin_apply_profile_update failed", {
         userId,
@@ -184,31 +176,21 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
         details: rpcErr.details,
         hint: rpcErr.hint,
         code: rpcErr.code,
-        skipRollback,
-        DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL: envRaw,
+        DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL: process.env.DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL ?? "(unset)",
+        envWouldSkipRollback: skipRollbackAfterRpcInviteFailure(),
       });
 
-      if (skipRollback) {
-        return {
-          ok: false,
-          error:
-            `${baseMsg} | debug env raw=${JSON.stringify(envRaw)} | rollback Auth OFF — userId=${userId}. ` +
-            `L’account resta in Auth per ispezione; rimuovi l’env dopo il debug.`,
-        };
-      }
+      /*
+       * TEMP DEBUG: deleteUser disabilitato in codice per verificare che la revision deployata
+       * esegua questo ramo. Ripristinare rollback prima della produzione.
+       * await supabase.auth.admin.deleteUser(userId);
+       */
 
-      const { error: delErr } = await supabase.auth.admin.deleteUser(userId);
-      if (delErr) {
-        return {
-          ok: false,
-          error: `${baseMsg} | rollback deleteUser fallita: ${delErr.message}`,
-        };
-      }
       return {
         ok: false,
         error:
-          `${baseMsg}. Creazione annullata: account Auth rimosso dopo errore RPC ` +
-          `(profilo + specializzandi non allineati).`,
+          `${baseMsg}\nDEBUG: rollback Auth disabilitato nel codice, userId=${String(userId)} — ` +
+          `se dopo deploy l’utente non resta in Auth, non stai eseguendo questo bundle.`,
       };
     }
   }
