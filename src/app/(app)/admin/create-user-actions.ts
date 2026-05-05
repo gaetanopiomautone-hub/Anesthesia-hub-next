@@ -24,6 +24,16 @@ function parseOptionalInt(formData: FormData, key: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/**
+ * Debug: con `DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL=1` (o `true`) sul server non viene chiamato
+ * `auth.admin.deleteUser` se `admin_apply_profile_update` fallisce — resta l’utente Auth per ispezionare DB / link invito.
+ * In produzione lasciare disattivato.
+ */
+function skipRollbackAfterRpcInviteFailure(): boolean {
+  const v = process.env.DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL;
+  return v === "1" || v === "true";
+}
+
 /** Flusso A: invite email Supabase Auth; l’utente imposta password dal link (nessuna password sul form). */
 export async function createUserByAdmin(formData: FormData): Promise<CreateUserByAdminResult> {
   try {
@@ -153,6 +163,11 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
     });
 
     if (rpcErr) {
+      const baseMsg =
+        `[RPC ERROR] ${rpcErr.message} | details=${rpcErr.details ?? "n/a"} | ` +
+        `hint=${rpcErr.hint ?? "n/a"} | code=${rpcErr.code ?? "n/a"}`;
+
+      const skipRollback = skipRollbackAfterRpcInviteFailure();
       console.error("[createUserByAdmin] admin_apply_profile_update failed", {
         userId,
         role,
@@ -162,21 +177,30 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
         details: rpcErr.details,
         hint: rpcErr.hint,
         code: rpcErr.code,
+        skipRollback,
       });
+
+      if (skipRollback) {
+        return {
+          ok: false,
+          error:
+            `${baseMsg} | debug: rollback Auth disattivo (DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL) — ` +
+            `userId=${userId}. L’account resta in Auth per ispezione; rimuovi l’env dopo il debug.`,
+        };
+      }
+
       const { error: delErr } = await supabase.auth.admin.deleteUser(userId);
       if (delErr) {
         return {
           ok: false,
-          error:
-            `[RPC ERROR] ${rpcErr.message} | details=${rpcErr.details ?? "n/a"} | ` +
-            `hint=${rpcErr.hint ?? "n/a"} | code=${rpcErr.code ?? "n/a"} | rollback=${delErr.message}`,
+          error: `${baseMsg} | rollback deleteUser fallita: ${delErr.message}`,
         };
       }
       return {
         ok: false,
         error:
-          `[RPC ERROR] ${rpcErr.message} | details=${rpcErr.details ?? "n/a"} | ` +
-          `hint=${rpcErr.hint ?? "n/a"} | code=${rpcErr.code ?? "n/a"}`,
+          `${baseMsg}. Creazione annullata: account Auth rimosso dopo errore RPC ` +
+          `(profilo + specializzandi non allineati).`,
       };
     }
   }
