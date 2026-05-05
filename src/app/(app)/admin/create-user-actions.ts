@@ -26,8 +26,8 @@ function parseOptionalInt(formData: FormData, key: string): number | null {
 
 /** Flusso A: invite email Supabase Auth; l’utente imposta password dal link (nessuna password sul form). */
 export async function createUserByAdmin(formData: FormData): Promise<CreateUserByAdminResult> {
-  await requireRole(["admin"]);
   try {
+    await requireRole(["admin"]);
     return await runCreateUserByAdmin(formData);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -165,13 +165,19 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
       });
       const { error: delErr } = await supabase.auth.admin.deleteUser(userId);
       if (delErr) {
-        throw new Error(
-          `[RPC ERROR] ${rpcErr.message} | details=${rpcErr.details ?? "n/a"} | hint=${rpcErr.hint ?? "n/a"} | code=${rpcErr.code ?? "n/a"} | rollback=${delErr.message}`,
-        );
+        return {
+          ok: false,
+          error:
+            `[RPC ERROR] ${rpcErr.message} | details=${rpcErr.details ?? "n/a"} | ` +
+            `hint=${rpcErr.hint ?? "n/a"} | code=${rpcErr.code ?? "n/a"} | rollback=${delErr.message}`,
+        };
       }
-      throw new Error(
-        `[RPC ERROR] ${rpcErr.message} | details=${rpcErr.details ?? "n/a"} | hint=${rpcErr.hint ?? "n/a"} | code=${rpcErr.code ?? "n/a"}`,
-      );
+      return {
+        ok: false,
+        error:
+          `[RPC ERROR] ${rpcErr.message} | details=${rpcErr.details ?? "n/a"} | ` +
+          `hint=${rpcErr.hint ?? "n/a"} | code=${rpcErr.code ?? "n/a"}`,
+      };
     }
   }
 

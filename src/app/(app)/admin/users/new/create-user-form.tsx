@@ -37,18 +37,22 @@ export function CreateUserForm() {
       fd.set("assegnazione", assegnazione);
     }
     startTransition(async () => {
-      const res = await createUserByAdmin(fd);
-      if (!res.ok) {
-        setError(res.error);
-        return;
+      try {
+        const res = await createUserByAdmin(fd);
+        if (!res.ok) {
+          setError(res.error);
+          return;
+        }
+        setOk(res.message);
+        setNome("");
+        setCognome("");
+        setEmail("");
+        setTelefono("");
+        setAnnoSpecialita("1");
+        setAssegnazione("rianimazione");
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
       }
-      setOk(res.message);
-      setNome("");
-      setCognome("");
-      setEmail("");
-      setTelefono("");
-      setAnnoSpecialita("1");
-      setAssegnazione("rianimazione");
     });
   };
 
