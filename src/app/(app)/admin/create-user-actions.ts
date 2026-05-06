@@ -136,6 +136,13 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
     redirectTo: `${base}/set-password`,
   };
 
+  console.error("[createUserByAdmin] invite payload", {
+    email,
+    role,
+    meta,
+    redirectTo: inviteOptions.redirectTo,
+  });
+
   const { data: invited, error } = await supabase.auth.admin.inviteUserByEmail(email, inviteOptions);
 
   if (error) {
