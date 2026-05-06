@@ -165,7 +165,7 @@ export function CreateUserForm() {
       {ok ? <p className="text-sm text-emerald-700">{ok}</p> : null}
 
       <Button type="button" onClick={submit} disabled={isPending}>
-        {isPending ? "Invio invito..." : "Invia invito email"}
+        {isPending ? "Invio invito..." : "Invia invito email DEBUG 8b92938"}
       </Button>
     </div>
   );
