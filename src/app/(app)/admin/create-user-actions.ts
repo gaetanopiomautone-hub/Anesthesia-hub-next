@@ -164,6 +164,24 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
         error: `Invito inviato ma salvataggio metadata Auth fallito: ${metaErr.message}`,
       };
     }
+
+    const { data: updatedUserRes, error: readMetaErr } = await supabase.auth.admin.getUserById(userId);
+    if (readMetaErr) {
+      return {
+        ok: false,
+        error: `Invito inviato ma verifica metadata Auth fallita: ${readMetaErr.message}`,
+      };
+    }
+
+    const savedMeta = (updatedUserRes?.user?.user_metadata ?? {}) as Record<string, unknown>;
+    if (!savedMeta.role || !savedMeta.nome || !savedMeta.cognome) {
+      return {
+        ok: false,
+        error:
+          `Invito inviato ma metadata Auth non persistiti correttamente per userId=${userId}. ` +
+          `Valori letti: ${JSON.stringify(savedMeta)}.`,
+      };
+    }
   }
 
   /** Allinea hub (profiles + specializzandi_profiles quando serve): copre anche trigger diverso o rollback parziali. */
