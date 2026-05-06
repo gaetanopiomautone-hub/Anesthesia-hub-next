@@ -154,6 +154,17 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
   }
 
   const userId = invited?.user?.id ?? null;
+  if (userId) {
+    const { error: metaErr } = await supabase.auth.admin.updateUserById(userId, {
+      user_metadata: meta as Record<string, unknown>,
+    });
+    if (metaErr) {
+      return {
+        ok: false,
+        error: `Invito inviato ma salvataggio metadata Auth fallito: ${metaErr.message}`,
+      };
+    }
+  }
 
   /** Allinea hub (profiles + specializzandi_profiles quando serve): copre anche trigger diverso o rollback parziali. */
   if (userId) {
