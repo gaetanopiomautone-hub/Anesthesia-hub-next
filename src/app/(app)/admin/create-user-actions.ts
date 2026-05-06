@@ -105,6 +105,11 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
 
   let supabase;
   try {
+    console.error("[createUserByAdmin] service role env check", {
+      hasServiceRoleKey: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+      serviceRoleKeyLength: process.env.SUPABASE_SERVICE_ROLE_KEY?.length ?? 0,
+      serviceRoleKeyPrefix: process.env.SUPABASE_SERVICE_ROLE_KEY?.slice(0, 8) ?? "(unset)",
+    });
     supabase = createServiceRoleSupabaseClient();
   } catch {
     return { ok: false, error: "Configurazione server incompleta (chiave service role)." };
