@@ -5,7 +5,6 @@ import { revalidatePath } from "next/cache";
 import { requireRole } from "@/lib/auth/get-current-user-profile";
 import type { AppRole } from "@/lib/auth/roles";
 import {
-  ASSEGNAZIONE_SPECIALIZZANDO_VALUES,
   parseAssegnazioneFromForm,
   type AssegnazioneSpecializzando,
 } from "@/lib/domain/specializzando-assignment";
@@ -41,16 +40,18 @@ function formatAuthAdminErr(err: unknown): string {
 }
 
 /**
- * Debug: con `DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL=1` (o `true`) sul server non viene chiamato
- * `auth.admin.deleteUser` se `admin_apply_profile_update` fallisce — resta l’utente Auth per ispezionare DB / link invito.
+ * Con `DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL=1` sul server non viene chiamato `deleteUser` se l’RPC fallisce.
  * In produzione lasciare disattivato.
  */
-function skipRollbackAfterRpcInviteFailure(): boolean {
+function skipRollbackAfterRpcFail(): boolean {
   const v = process.env.DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL;
   return v === "1" || v === "true";
 }
 
-/** Flusso A: invite email Supabase Auth; l’utente imposta password dal link (nessuna password sul form). */
+/**
+ * Crea utente (admin) + allinea profili via RPC + invia email “imposta password” con recovery
+ * (più affidabile di inviteUserByEmail con alcuni setup SMTP).
+ */
 export async function createUserByAdmin(formData: FormData): Promise<CreateUserByAdminResult> {
   try {
     await requireRole(["admin"]);
@@ -121,11 +122,6 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
 
   let supabase;
   try {
-    console.error("[createUserByAdmin] service role env check", {
-      hasServiceRoleKey: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
-      serviceRoleKeyLength: process.env.SUPABASE_SERVICE_ROLE_KEY?.length ?? 0,
-      serviceRoleKeyPrefix: process.env.SUPABASE_SERVICE_ROLE_KEY?.slice(0, 8) ?? "(unset)",
-    });
     supabase = createServiceRoleSupabaseClient();
   } catch {
     return { ok: false, error: "Configurazione server incompleta (chiave service role)." };
@@ -152,63 +148,49 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
     };
   }
 
-  const inviteOptions = {
-    data: meta as Record<string, unknown>,
-    redirectTo: `${base}/set-password`,
-  };
+  const redirectToSetPassword = `${base}/set-password`;
 
-  console.error("[createUserByAdmin] invite payload", {
+  const { data: created, error: createErr } = await supabase.auth.admin.createUser({
     email,
-    role,
-    meta,
-    redirectTo: inviteOptions.redirectTo,
+    email_confirm: false,
+    user_metadata: meta as Record<string, unknown>,
   });
 
-  const { data: invited, error } = await supabase.auth.admin.inviteUserByEmail(email, inviteOptions);
-
-  if (error) {
-    console.error("[inviteUserByEmail ERROR]", {
-      email,
-      redirectTo: inviteOptions.redirectTo,
-      formatted: formatAuthAdminErr(error),
-      error,
-    });
-    const msg = error.message.toLowerCase();
-    if (msg.includes("already registered") || msg.includes("already been registered")) {
+  if (createErr) {
+    const msg = createErr.message.toLowerCase();
+    if (
+      msg.includes("already registered") ||
+      msg.includes("already been registered") ||
+      msg.includes("user already registered") ||
+      msg.includes("duplicate")
+    ) {
       return {
         ok: false,
         error:
-          `[inviteUserByEmail] ${formatAuthAdminErr(error)} — ` +
+          `[createUser] ${formatAuthAdminErr(createErr)} — ` +
           "Questa email è già registrata. Usa un altro indirizzo o reimposta l’accesso da Supabase Auth.",
       };
     }
     return {
       ok: false,
-      error: `[inviteUserByEmail] ${formatAuthAdminErr(error)} — ${describeSupabaseAuthEmailError(error.message)}`,
+      error: `[createUser] ${formatAuthAdminErr(createErr)} — ${describeSupabaseAuthEmailError(createErr.message)}`,
     };
   }
 
-  const userId = invited?.user?.id ?? null;
+  const userId = created?.user?.id ?? null;
   if (!userId) {
-    console.error("[createUserByAdmin] inviteUserByEmail returned no user id", {
-      email,
-      invited,
-    });
     return {
       ok: false,
-      error:
-        "[inviteUserByEmail] Nessun user.id nella risposta dopo invito riuscito: impossibile applicare metadata / RPC.",
+      error: "[createUser] Nessun user.id nella risposta: impossibile completare la registrazione.",
     };
   }
-
-  console.error("[createUserByAdmin] inviteUserByEmail OK", { email, userId });
 
   {
     const { error: metaErr } = await supabase.auth.admin.updateUserById(userId, {
       user_metadata: meta as Record<string, unknown>,
     });
     if (metaErr) {
-      console.error("[createUserByAdmin] updateUserById failed", { userId, meta, err: metaErr });
+      await supabase.auth.admin.deleteUser(userId);
       return {
         ok: false,
         error: `[updateUserById] metadata non salvati: ${formatAuthAdminErr(metaErr)}`,
@@ -217,7 +199,7 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
 
     const { data: updatedUserRes, error: readMetaErr } = await supabase.auth.admin.getUserById(userId);
     if (readMetaErr) {
-      console.error("[createUserByAdmin] getUserById failed after update", { userId, err: readMetaErr });
+      await supabase.auth.admin.deleteUser(userId);
       return {
         ok: false,
         error: `[getUserById] verifica metadata fallita: ${formatAuthAdminErr(readMetaErr)}`,
@@ -226,16 +208,15 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
 
     const savedMeta = (updatedUserRes?.user?.user_metadata ?? {}) as Record<string, unknown>;
     if (!savedMeta.role || !savedMeta.nome || !savedMeta.cognome) {
+      await supabase.auth.admin.deleteUser(userId);
       return {
         ok: false,
         error:
-          `[user_metadata] dopo updateUserById/getUserById mancano role/nome/cognome per userId=${userId}. ` +
-          `Letto: ${JSON.stringify(savedMeta)}.`,
+          `[user_metadata] mancano role/nome/cognome per userId=${userId}. Letto: ${JSON.stringify(savedMeta)}.`,
       };
     }
   }
 
-  /** Allinea hub (profiles + specializzandi_profiles quando serve): copre anche trigger diverso o rollback parziali. */
   {
     const { error: rpcErr } = await supabase.rpc("admin_apply_profile_update", {
       p_user_id: userId,
@@ -254,38 +235,35 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
         `[RPC ERROR] ${rpcErr.message} | details=${rpcErr.details ?? "n/a"} | ` +
         `hint=${rpcErr.hint ?? "n/a"} | code=${rpcErr.code ?? "n/a"}`;
 
-      console.error("[createUserByAdmin] admin_apply_profile_update failed", {
-        userId,
-        role,
-        annoSpecialita,
-        assegnazioneEnum,
-        message: rpcErr.message,
-        details: rpcErr.details,
-        hint: rpcErr.hint,
-        code: rpcErr.code,
-        DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL: process.env.DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL ?? "(unset)",
-        envWouldSkipRollback: skipRollbackAfterRpcInviteFailure(),
-      });
-
-      /*
-       * TEMP DEBUG: deleteUser disabilitato in codice per verificare che la revision deployata
-       * esegua questo ramo. Ripristinare rollback prima della produzione.
-       * await supabase.auth.admin.deleteUser(userId);
-       */
+      if (!skipRollbackAfterRpcFail()) {
+        await supabase.auth.admin.deleteUser(userId);
+      }
 
       return {
         ok: false,
-        error:
-          `${baseMsg}\nDEBUG: rollback Auth disabilitato nel codice, userId=${String(userId)} — ` +
-          `se dopo deploy l’utente non resta in Auth, non stai eseguendo questo bundle.`,
+        error: skipRollbackAfterRpcFail()
+          ? `${baseMsg} (rollback Auth disattivo: DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL)`
+          : `${baseMsg} Creazione annullata: account Auth rimosso dopo errore RPC.`,
       };
     }
+  }
+
+  const { error: recoveryErr } = await supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: redirectToSetPassword,
+  });
+
+  if (recoveryErr) {
+    await supabase.auth.admin.deleteUser(userId);
+    return {
+      ok: false,
+      error: `[resetPasswordForEmail] Impossibile inviare il link: ${formatAuthAdminErr(recoveryErr)}`,
+    };
   }
 
   revalidatePath("/admin/users");
 
   return {
     ok: true,
-    message: `Invito inviato a ${email}. L’utente riceverà il link per impostare la password.`,
+    message: `Utente creato. Abbiamo inviato a ${email} il link per impostare la password (controlla anche spam).`,
   };
 }
