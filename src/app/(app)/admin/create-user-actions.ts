@@ -49,6 +49,35 @@ function skipRollbackAfterRpcFail(): boolean {
 }
 
 /**
+ * Tutti stringhe: `public.handle_new_user` usa solo `meta ->> 'chiave'` su raw_user_meta_data.
+ * Evita ambiguità tra numeri JSON e testo lato Auth.
+ */
+function buildAuthUserMetadata(params: {
+  nome: string;
+  cognome: string;
+  role: AppRole;
+  telefono: string | null;
+  annoSpecialita?: number;
+  assegnazioneEnum?: AssegnazioneSpecializzando;
+}): Record<string, string> {
+  const out: Record<string, string> = {
+    nome: params.nome,
+    cognome: params.cognome,
+    role: params.role,
+  };
+  if (params.telefono) out.telefono = params.telefono;
+  if (
+    params.role === "specializzando" &&
+    params.annoSpecialita !== undefined &&
+    params.assegnazioneEnum
+  ) {
+    out.anno_specialita = String(params.annoSpecialita);
+    out.assegnazione = params.assegnazioneEnum;
+  }
+  return out;
+}
+
+/**
  * Crea utente (admin) + allinea profili via RPC + invia email “imposta password” con recovery
  * (più affidabile di inviteUserByEmail con alcuni setup SMTP).
  */
@@ -127,17 +156,14 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
     return { ok: false, error: "Configurazione server incompleta (chiave service role)." };
   }
 
-  const meta: Record<string, string | number | undefined> = {
+  const meta = buildAuthUserMetadata({
     nome,
     cognome,
     role,
-  };
-  if (telefono) meta.telefono = telefono;
-
-  if (role === "specializzando" && annoSpecialita !== undefined && assegnazioneEnum) {
-    meta.anno_specialita = annoSpecialita;
-    meta.assegnazione = assegnazioneEnum;
-  }
+    telefono,
+    annoSpecialita,
+    assegnazioneEnum,
+  });
 
   const base = siteUrlForAuthRedirect();
   if (!base) {
@@ -153,10 +179,12 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
   const { data: created, error: createErr } = await supabase.auth.admin.createUser({
     email,
     email_confirm: false,
-    user_metadata: meta as Record<string, unknown>,
+    user_metadata: meta,
   });
 
   if (createErr) {
+    const triggerHint =
+      " Se persiste: controlla log Postgres (trigger public.handle_new_user su auth.users), vincolo UNIQUE su public.profiles.email, enum assegnazione e anno 1–5 per specializzando.";
     const msg = createErr.message.toLowerCase();
     if (
       msg.includes("already registered") ||
@@ -173,7 +201,9 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
     }
     return {
       ok: false,
-      error: `[createUser] ${formatAuthAdminErr(createErr)} — ${describeSupabaseAuthEmailError(createErr.message)}`,
+      error:
+        `[createUser] ${formatAuthAdminErr(createErr)} — ${describeSupabaseAuthEmailError(createErr.message)}` +
+        triggerHint,
     };
   }
 
@@ -187,7 +217,7 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
 
   {
     const { error: metaErr } = await supabase.auth.admin.updateUserById(userId, {
-      user_metadata: meta as Record<string, unknown>,
+      user_metadata: meta,
     });
     if (metaErr) {
       await supabase.auth.admin.deleteUser(userId);
