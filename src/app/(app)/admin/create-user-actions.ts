@@ -24,6 +24,22 @@ function parseOptionalInt(formData: FormData, key: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** Messaggio completo per errori Auth Admin API (spesso includono code/status oltre a message). */
+function formatAuthAdminErr(err: unknown): string {
+  if (err && typeof err === "object" && "message" in err && typeof (err as { message: unknown }).message === "string") {
+    const o = err as Record<string, unknown>;
+    const bits: string[] = [String(o.message)];
+    for (const k of ["code", "status", "details", "hint"] as const) {
+      const v = o[k];
+      if (v !== undefined && v !== null && String(v).length > 0) {
+        bits.push(`${k}=${String(v)}`);
+      }
+    }
+    return bits.join(" | ");
+  }
+  return String(err);
+}
+
 /**
  * Debug: con `DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL=1` (o `true`) sul server non viene chiamato
  * `auth.admin.deleteUser` se `admin_apply_profile_update` fallisce — resta l’utente Auth per ispezionare DB / link invito.
@@ -164,17 +180,19 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
       user_metadata: meta as Record<string, unknown>,
     });
     if (metaErr) {
+      console.error("[createUserByAdmin] updateUserById failed", { userId, meta, err: metaErr });
       return {
         ok: false,
-        error: `Invito inviato ma salvataggio metadata Auth fallito: ${metaErr.message}`,
+        error: `[updateUserById] metadata non salvati: ${formatAuthAdminErr(metaErr)}`,
       };
     }
 
     const { data: updatedUserRes, error: readMetaErr } = await supabase.auth.admin.getUserById(userId);
     if (readMetaErr) {
+      console.error("[createUserByAdmin] getUserById failed after update", { userId, err: readMetaErr });
       return {
         ok: false,
-        error: `Invito inviato ma verifica metadata Auth fallita: ${readMetaErr.message}`,
+        error: `[getUserById] verifica metadata fallita: ${formatAuthAdminErr(readMetaErr)}`,
       };
     }
 
@@ -183,8 +201,8 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
       return {
         ok: false,
         error:
-          `Invito inviato ma metadata Auth non persistiti correttamente per userId=${userId}. ` +
-          `Valori letti: ${JSON.stringify(savedMeta)}.`,
+          `[user_metadata] dopo updateUserById/getUserById mancano role/nome/cognome per userId=${userId}. ` +
+          `Letto: ${JSON.stringify(savedMeta)}.`,
       };
     }
   }
