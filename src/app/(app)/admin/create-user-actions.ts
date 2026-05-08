@@ -167,15 +167,43 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
   const { data: invited, error } = await supabase.auth.admin.inviteUserByEmail(email, inviteOptions);
 
   if (error) {
+    console.error("[inviteUserByEmail ERROR]", {
+      email,
+      redirectTo: inviteOptions.redirectTo,
+      formatted: formatAuthAdminErr(error),
+      error,
+    });
     const msg = error.message.toLowerCase();
     if (msg.includes("already registered") || msg.includes("already been registered")) {
-      return { ok: false, error: "Questa email è già registrata. Usa un altro indirizzo o reimposta l’accesso da Supabase Auth." };
+      return {
+        ok: false,
+        error:
+          `[inviteUserByEmail] ${formatAuthAdminErr(error)} — ` +
+          "Questa email è già registrata. Usa un altro indirizzo o reimposta l’accesso da Supabase Auth.",
+      };
     }
-    return { ok: false, error: describeSupabaseAuthEmailError(error.message) };
+    return {
+      ok: false,
+      error: `[inviteUserByEmail] ${formatAuthAdminErr(error)} — ${describeSupabaseAuthEmailError(error.message)}`,
+    };
   }
 
   const userId = invited?.user?.id ?? null;
-  if (userId) {
+  if (!userId) {
+    console.error("[createUserByAdmin] inviteUserByEmail returned no user id", {
+      email,
+      invited,
+    });
+    return {
+      ok: false,
+      error:
+        "[inviteUserByEmail] Nessun user.id nella risposta dopo invito riuscito: impossibile applicare metadata / RPC.",
+    };
+  }
+
+  console.error("[createUserByAdmin] inviteUserByEmail OK", { email, userId });
+
+  {
     const { error: metaErr } = await supabase.auth.admin.updateUserById(userId, {
       user_metadata: meta as Record<string, unknown>,
     });
@@ -208,7 +236,7 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
   }
 
   /** Allinea hub (profiles + specializzandi_profiles quando serve): copre anche trigger diverso o rollback parziali. */
-  if (userId) {
+  {
     const { error: rpcErr } = await supabase.rpc("admin_apply_profile_update", {
       p_user_id: userId,
       p_nome: nome,
