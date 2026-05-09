@@ -238,12 +238,6 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
   }
 
   if (role === "specializzando") {
-    console.error("[createUserByAdmin] updateUserById metadata", {
-      email,
-      userId,
-      finalUserMetadata,
-    });
-
     const { error: syncErr } = await supabase.auth.admin.updateUserById(userId, {
       user_metadata: finalUserMetadata,
     });

@@ -80,17 +80,6 @@ function decodeOAuthText(raw: string): string {
   }
 }
 
-function logAuthFragmentDevOnce() {
-  if (process.env.NODE_ENV !== "development" || typeof window === "undefined") return;
-  const raw = window.location.hash.replace(/^#/, "");
-  if (!raw) return;
-  const hp = new URLSearchParams(raw);
-  console.log("[set-password] Auth fragment detected", {
-    hasAccessToken: Boolean(hp.get("access_token")),
-    hasRefreshToken: Boolean(hp.get("refresh_token")),
-  });
-}
-
 export function SetPasswordForm() {
   const router = useRouter();
   const [status, setStatus] = useState<Status>("loading");
@@ -113,10 +102,6 @@ export function SetPasswordForm() {
       const consumable = urlHasConsumableAuthExchange();
       const implicit = parseImplicitGrantFromHash();
       openedWithInviteOrResetLink.current = hadAuthParamsOnLanding;
-
-      if (typeof window !== "undefined" && window.location.hash.length > 1) {
-        logAuthFragmentDevOnce();
-      }
 
       // Implicit grant / recovery|invite nel fragment: setSession esplicito dopo aver tolto eventuale sessione concorrente.
       if (implicit) {

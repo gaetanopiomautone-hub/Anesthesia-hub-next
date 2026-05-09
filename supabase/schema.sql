@@ -611,8 +611,6 @@ declare
   meta_anno_nonempty boolean := nullif(trim(meta ->> 'anno_specialita'), '') is not null;
   meta_asseg_nonempty boolean := v_asseg_raw is not null;
 begin
-  raise notice 'handle_new_user TG_OP=%, raw_user_meta_data=%', TG_OP, new.raw_user_meta_data;
-
   if tg_op = 'UPDATE' then
     if new.raw_user_meta_data is not distinct from old.raw_user_meta_data then
       return new;
