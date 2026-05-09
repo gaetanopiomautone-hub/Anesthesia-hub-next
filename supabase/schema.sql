@@ -611,6 +611,12 @@ declare
   meta_anno_nonempty boolean := nullif(trim(meta ->> 'anno_specialita'), '') is not null;
   meta_asseg_nonempty boolean := v_asseg_raw is not null;
 begin
+  if tg_op = 'UPDATE' then
+    if new.raw_user_meta_data is not distinct from old.raw_user_meta_data then
+      return new;
+    end if;
+  end if;
+
   if r in ('specializzando', 'admin', 'tutor') then
     resolved_role := r::public.app_role;
   end if;
@@ -657,7 +663,13 @@ begin
     resolved_role,
     true
   )
-  on conflict (id) do nothing;
+  on conflict (id) do update set
+    email = excluded.email,
+    nome = excluded.nome,
+    cognome = excluded.cognome,
+    telefono = excluded.telefono,
+    role = excluded.role,
+    updated_at = now();
 
   if resolved_role = 'specializzando'::public.app_role then
     begin
@@ -694,6 +706,8 @@ begin
       anno_specialita = excluded.anno_specialita,
       assegnazione = excluded.assegnazione,
       updated_at = now();
+  else
+    delete from public.specializzandi_profiles where user_id = new.id;
   end if;
 
   return new;
@@ -703,5 +717,5 @@ $$;
 drop trigger if exists on_auth_user_created on auth.users;
 
 create trigger on_auth_user_created
-after insert on auth.users
+after insert or update of raw_user_meta_data on auth.users
 for each row execute procedure public.handle_new_user();

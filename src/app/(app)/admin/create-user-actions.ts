@@ -40,15 +40,6 @@ function formatAuthAdminErr(err: unknown): string {
 }
 
 /**
- * Con `DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL=1` sul server non viene chiamato `deleteUser` se l’RPC fallisce.
- * In produzione lasciare disattivato.
- */
-function skipRollbackAfterRpcFail(): boolean {
-  const v = process.env.DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL;
-  return v === "1" || v === "true";
-}
-
-/**
  * Tutti stringhe: `public.handle_new_user` usa solo `meta ->> 'chiave'` su raw_user_meta_data.
  * Evita ambiguità tra numeri JSON e testo lato Auth.
  */
@@ -74,6 +65,25 @@ function buildAuthUserMetadata(params: {
     out.anno_specialita = String(params.annoSpecialita);
     out.assegnazione = params.assegnazioneEnum;
   }
+  return out;
+}
+
+/**
+ * Su alcuni progetti i metadati completi non sono disponibili nel trigger AFTER INSERT.
+ * Creiamo prima l'utente come tutor (nome/cognome ok, senza anno/assegnazione); poi
+ * updateUserById con il ruolo reale attiva il trigger su UPDATE.
+ */
+function buildBootstrapAuthUserMetadata(params: {
+  nome: string;
+  cognome: string;
+  telefono: string | null;
+}): Record<string, string> {
+  const out: Record<string, string> = {
+    nome: params.nome,
+    cognome: params.cognome,
+    role: "tutor",
+  };
+  if (params.telefono) out.telefono = params.telefono;
   return out;
 }
 
@@ -156,7 +166,19 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
     return { ok: false, error: "Configurazione server incompleta (chiave service role)." };
   }
 
-  const meta = buildAuthUserMetadata({
+  const createUserMetadata =
+    role === "specializzando"
+      ? buildBootstrapAuthUserMetadata({ nome, cognome, telefono })
+      : buildAuthUserMetadata({
+          nome,
+          cognome,
+          role,
+          telefono,
+          annoSpecialita,
+          assegnazioneEnum,
+        });
+
+  const finalUserMetadata = buildAuthUserMetadata({
     nome,
     cognome,
     role,
@@ -176,15 +198,10 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
 
   const redirectToSetPassword = `${base}/set-password`;
 
-  console.error("[createUserByAdmin] createUser metadata", {
-    email,
-    meta,
-  });
-
   const { data: created, error: createErr } = await supabase.auth.admin.createUser({
     email,
     email_confirm: false,
-    user_metadata: meta,
+    user_metadata: createUserMetadata,
   });
 
   if (createErr) {
@@ -220,18 +237,20 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
     };
   }
 
-  {
-    const { error: metaErr } = await supabase.auth.admin.updateUserById(userId, {
-      user_metadata: meta,
+  if (role === "specializzando") {
+    const { error: syncErr } = await supabase.auth.admin.updateUserById(userId, {
+      user_metadata: finalUserMetadata,
     });
-    if (metaErr) {
+    if (syncErr) {
       await supabase.auth.admin.deleteUser(userId);
       return {
         ok: false,
-        error: `[updateUserById] metadata non salvati: ${formatAuthAdminErr(metaErr)}`,
+        error: `[updateUserById] sync metadata specializzando: ${formatAuthAdminErr(syncErr)}`,
       };
     }
+  }
 
+  {
     const { data: updatedUserRes, error: readMetaErr } = await supabase.auth.admin.getUserById(userId);
     if (readMetaErr) {
       await supabase.auth.admin.deleteUser(userId);
@@ -270,15 +289,11 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
         `[RPC ERROR] ${rpcErr.message} | details=${rpcErr.details ?? "n/a"} | ` +
         `hint=${rpcErr.hint ?? "n/a"} | code=${rpcErr.code ?? "n/a"}`;
 
-      if (!skipRollbackAfterRpcFail()) {
-        await supabase.auth.admin.deleteUser(userId);
-      }
+      await supabase.auth.admin.deleteUser(userId);
 
       return {
         ok: false,
-        error: skipRollbackAfterRpcFail()
-          ? `${baseMsg} (rollback Auth disattivo: DEBUG_SKIP_INVITE_ROLLBACK_ON_RPC_FAIL)`
-          : `${baseMsg} Creazione annullata: account Auth rimosso dopo errore RPC.`,
+        error: `${baseMsg} Creazione annullata: account Auth rimosso dopo errore RPC.`,
       };
     }
   }
