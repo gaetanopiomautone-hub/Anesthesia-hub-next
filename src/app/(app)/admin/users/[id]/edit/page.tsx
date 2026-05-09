@@ -8,6 +8,7 @@ import type { AppRole } from "@/lib/auth/roles";
 import { appRoles } from "@/lib/auth/roles";
 import { pickSpecializzandiProfilesEmbed } from "@/lib/domain/specializzandi-embed";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { nomeCognomeFromProfileRow } from "@/lib/utils/profile-display";
 
 import { EditUserForm, type EditUserInitial } from "./edit-user-form";
 
@@ -24,43 +25,32 @@ export default async function AdminEditUserPage({ params }: PageProps) {
   const { id } = await params;
 
   const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
-    .from("profiles")
-    .select(
-      `
-      id,
-      nome,
-      cognome,
-      email,
-      role,
-      telefono,
-      is_active,
-      specializzandi_profiles (
-        anno_specialita,
-        assegnazione
-      )
-    `,
-    )
-    .eq("id", id)
-    .maybeSingle();
+  const { data, error } = await supabase.from("profiles").select("*").eq("id", id).maybeSingle();
 
   if (error || !data) notFound();
 
-  const role = data.role as unknown;
+  const raw = data as Record<string, unknown>;
+  const nc = nomeCognomeFromProfileRow(raw);
+
+  const role = raw.role as unknown;
   if (!isAppRole(role)) notFound();
 
-  const spez = pickSpecializzandiProfilesEmbed(
-    (data as { specializzandi_profiles?: unknown }).specializzandi_profiles,
-  );
+  const { data: spezRow } = await supabase
+    .from("specializzandi_profiles")
+    .select("anno_specialita, assegnazione")
+    .eq("user_id", id)
+    .maybeSingle();
+
+  const spez = pickSpecializzandiProfilesEmbed(spezRow ?? null);
 
   const initial: EditUserInitial = {
-    id: String(data.id),
-    nome: String((data as { nome?: string }).nome ?? ""),
-    cognome: String((data as { cognome?: string }).cognome ?? ""),
-    email: String((data as { email?: string }).email ?? ""),
-    telefono: (data as { telefono?: string | null }).telefono ?? null,
+    id: String(raw.id),
+    nome: nc.nome,
+    cognome: nc.cognome,
+    email: String(raw.email ?? ""),
+    telefono: typeof raw.telefono === "string" && raw.telefono.trim() ? raw.telefono : null,
     role,
-    is_active: Boolean((data as { is_active?: boolean }).is_active),
+    is_active: typeof raw.is_active === "boolean" ? raw.is_active : true,
     anno_specialita: spez?.anno_specialita ?? null,
     assegnazione: spez?.assegnazione ?? null,
   };

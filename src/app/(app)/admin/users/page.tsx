@@ -6,6 +6,7 @@ import { requireRole } from "@/lib/auth/get-current-user-profile";
 import type { AppRole } from "@/lib/auth/roles";
 import { appRoles } from "@/lib/auth/roles";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { nomeCognomeFromProfileRow } from "@/lib/utils/profile-display";
 
 import { AdminUsersTable, type AdminUsersListRow } from "./users-table";
 
@@ -24,27 +25,51 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
   const okBanner = typeof sp?.ok === "string" ? sp.ok : "";
 
   const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
-    .from("profiles")
-    .select(
-      `
-      id,
-      nome,
-      cognome,
-      email,
-      role,
-      telefono,
-      is_active,
-      specializzandi_profiles (
-        anno_specialita,
-        assegnazione
-      )
-    `,
-    )
-    .order("cognome", { ascending: true })
-    .order("nome", { ascending: true });
+  const { data, error } = await supabase.from("profiles").select("*");
 
-  const rawRows = (data ?? []) as {
+  const rawProfiles = ((data ?? []) as Record<string, unknown>[]).slice();
+  rawProfiles.sort((a, b) => {
+    const ac = nomeCognomeFromProfileRow(a).cognome.localeCompare(nomeCognomeFromProfileRow(b).cognome, "it");
+    return ac !== 0 ? ac : nomeCognomeFromProfileRow(a).nome.localeCompare(nomeCognomeFromProfileRow(b).nome, "it");
+  });
+
+  let spezErrorMessage: string | null = null;
+  const ids = rawProfiles.map((r) => String(r.id ?? "")).filter(Boolean);
+  const spezByUserId = new Map<string, { anno_specialita: number; assegnazione: string }>();
+
+  if (ids.length > 0 && !error) {
+    const { data: spezRows, error: spezErr } = await supabase
+      .from("specializzandi_profiles")
+      .select("user_id, anno_specialita, assegnazione")
+      .in("user_id", ids);
+
+    if (spezErr) {
+      spezErrorMessage = spezErr.message;
+    } else {
+      for (const s of spezRows ?? []) {
+        const row = s as { user_id?: string; anno_specialita?: number | string; assegnazione?: string };
+        const uid = row.user_id;
+        const annoNum = typeof row.anno_specialita === "number" ? row.anno_specialita : Number(row.anno_specialita);
+        const asseg = typeof row.assegnazione === "string" ? row.assegnazione : "";
+        if (uid && Number.isFinite(annoNum) && asseg) {
+          spezByUserId.set(uid, { anno_specialita: annoNum as number, assegnazione: asseg });
+        }
+      }
+    }
+  }
+
+  const rawRows = rawProfiles.map((r) => ({
+    ...r,
+    nome: nomeCognomeFromProfileRow(r).nome,
+    cognome: nomeCognomeFromProfileRow(r).cognome,
+    email: String(r.email ?? ""),
+    role: r.role as unknown,
+    telefono: typeof r.telefono === "string" && r.telefono.trim() ? r.telefono : null,
+    is_active: typeof r.is_active === "boolean" ? r.is_active : true,
+    id: String(r.id ?? ""),
+    specializzandi_profiles:
+      ids.length === 0 || spezErrorMessage !== null ? null : (spezByUserId.get(String(r.id ?? "")) ?? null),
+  })) as {
     id: string;
     nome: string;
     cognome: string;
@@ -105,6 +130,11 @@ export default async function AdminUsersPage({ searchParams }: PageProps) {
       ) : null}
 
       <Card title="Elenco utenti" description={`${rows.length} profili caricati dalla tabella pubblica.`}>
+        {spezErrorMessage ? (
+          <p className="text-sm text-destructive">
+            Impossibile caricare specializzandi_profiles: {spezErrorMessage}
+          </p>
+        ) : null}
         {error ? (
           <p className="text-sm text-destructive">Errore caricamento: {error.message}</p>
         ) : rows.length === 0 ? (
