@@ -1,6 +1,5 @@
 "use server";
 
-import { createClient } from "@supabase/supabase-js";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
@@ -10,7 +9,7 @@ import type { AppRole } from "@/lib/auth/roles";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service-role";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { describeSupabaseAuthEmailError } from "@/lib/supabase/auth-email-errors";
-import { getSupabaseEnv } from "@/lib/supabase/env";
+import { createAnonSupabaseClient } from "@/lib/supabase/anon";
 import { siteUrlForAuthRedirect } from "@/lib/supabase/site-url";
 
 export type AdminUserMutationResult =
@@ -117,8 +116,13 @@ export async function sendPasswordSetupLinkAdmin(formData: FormData) {
     // Ripiego: secondo invito formale sullo stesso indirizzo a volte è rifiutato; il reset porta comunque a /set-password.
   }
 
-  const { url, anonKey } = getSupabaseEnv();
-  const publicClient = createClient(url, anonKey);
+  let publicClient;
+  try {
+    publicClient = createAnonSupabaseClient();
+  } catch {
+    redirect("/admin/users?e=" + encodeURIComponent("Configurazione Supabase anon mancante per invio link password."));
+  }
+
   const { error: resetErr } = await publicClient.auth.resetPasswordForEmail(email, { redirectTo });
 
   if (resetErr) {

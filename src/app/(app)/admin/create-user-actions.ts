@@ -9,6 +9,7 @@ import {
   type AssegnazioneSpecializzando,
 } from "@/lib/domain/specializzando-assignment";
 import { describeSupabaseAuthEmailError } from "@/lib/supabase/auth-email-errors";
+import { createAnonSupabaseClient } from "@/lib/supabase/anon";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service-role";
 import { siteUrlForAuthRedirect } from "@/lib/supabase/site-url";
 
@@ -298,13 +299,20 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
     }
   }
 
-  // TEMP diagnostica: confrontare redirectTo con Redirect URLs su Supabase (deve matchare esatto + /set-password).
-  console.error("[createUserByAdmin] resetPasswordForEmail payload", {
-    email,
-    redirectTo: redirectToSetPassword,
-  });
+  let anonAuth;
+  try {
+    anonAuth = createAnonSupabaseClient();
+  } catch {
+    revalidatePath("/admin/users");
+    return {
+      ok: true,
+      recoveryEmailFailed: true,
+      message:
+        "Utente creato e profilo sincronizzato. Invio email password fallito: configurazione Supabase anon mancante (NEXT_PUBLIC_SUPABASE_URL / NEXT_PUBLIC_SUPABASE_ANON_KEY).",
+    };
+  }
 
-  const { error: recoveryErr } = await supabase.auth.resetPasswordForEmail(email, {
+  const { error: recoveryErr } = await anonAuth.auth.resetPasswordForEmail(email, {
     redirectTo: redirectToSetPassword,
   });
 
