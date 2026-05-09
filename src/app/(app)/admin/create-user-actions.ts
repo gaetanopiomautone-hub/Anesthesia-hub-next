@@ -176,6 +176,11 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
 
   const redirectToSetPassword = `${base}/set-password`;
 
+  console.error("[createUserByAdmin] createUser metadata", {
+    email,
+    meta,
+  });
+
   const { data: created, error: createErr } = await supabase.auth.admin.createUser({
     email,
     email_confirm: false,
