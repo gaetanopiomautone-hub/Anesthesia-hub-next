@@ -17,8 +17,10 @@ export type AssignableShiftUserOption = {
   list_label: string;
 };
 
-/** Prefer canonical prod columns first (user_id), then dev/schema.sql variants. */
-const ASSIGNEE_COLUMNS = ["user_id", "assignee_profile_id", "assignee_id"] as const;
+/** Prefer canonical prod columns first (`user_id`), poi varianti tipo `schema.sql`. */
+export const SHIFTS_ASSIGNEE_COLUMNS = ["user_id", "assignee_profile_id", "assignee_id"] as const;
+
+export type ShiftsAssigneeFilterColumn = (typeof SHIFTS_ASSIGNEE_COLUMNS)[number];
 
 type ShiftRaw = Record<string, unknown> & {
   id?: string | null;
@@ -41,10 +43,26 @@ function resolveShiftType(raw: ShiftRaw): ShiftType {
   return "mattina";
 }
 
+export async function probeShiftsAssigneeFilterColumn(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+): Promise<ShiftsAssigneeFilterColumn> {
+  for (const column of SHIFTS_ASSIGNEE_COLUMNS) {
+    const { error } = await supabase
+      .from("shifts")
+      // Colonna variabile a seconda del DB (tipi generati spesso obsoleti).
+      .select(column as "id")
+      .limit(1);
+    if (!error) return column;
+  }
+  throw new Error(
+    `shifts: nessuna colonna assegnatario tra ${SHIFTS_ASSIGNEE_COLUMNS.join(", ")}. Allinea il database o applica le migration.`,
+  );
+}
+
 function resolveAssigneeColumn(rows: ShiftRaw[]) {
   const first = rows[0];
   if (!first) return null;
-  for (const column of ASSIGNEE_COLUMNS) {
+  for (const column of SHIFTS_ASSIGNEE_COLUMNS) {
     if (column in first) return column;
   }
   return null;

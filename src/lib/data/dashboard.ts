@@ -3,6 +3,10 @@ import { it } from "date-fns/locale";
 
 import type { CurrentUserProfile } from "@/lib/auth/get-current-user-profile";
 import type { AppRole } from "@/lib/auth/roles";
+import {
+  probeShiftsAssigneeFilterColumn,
+  type ShiftsAssigneeFilterColumn,
+} from "@/lib/data/shifts";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type LeaveRequestRow = {
@@ -115,6 +119,7 @@ async function countShiftsInRangeByArea(params: {
   weekEnd: string;
   areaType: "sala_operatoria" | "rianimazione";
   assigneeId?: string;
+  assigneeColumn?: ShiftsAssigneeFilterColumn | null;
 }) {
   const supabase = await createServerSupabaseClient();
 
@@ -140,8 +145,8 @@ async function countShiftsInRangeByArea(params: {
     .lte("shift_date", params.weekEnd)
     .in("location_id", ids);
 
-  if (params.assigneeId) {
-    query = query.eq("assignee_profile_id", params.assigneeId);
+  if (params.assigneeId && params.assigneeColumn) {
+    query = query.eq(params.assigneeColumn, params.assigneeId);
   }
 
   const { count, error } = await query;
@@ -162,6 +167,8 @@ export async function getDashboardData(profile: CurrentUserProfile) {
   const monthEnd = format(endOfMonth(today), "yyyy-MM-dd");
   const isTrainee = profile.role === "specializzando";
 
+  const assigneeCol = isTrainee ? await probeShiftsAssigneeFilterColumn(supabase) : null;
+
   let upcomingShiftsQuery = supabase
     .from("shifts")
     .select(
@@ -177,8 +184,8 @@ export async function getDashboardData(profile: CurrentUserProfile) {
     .order("shift_kind", { ascending: true })
     .limit(5);
 
-  if (isTrainee) {
-    upcomingShiftsQuery = upcomingShiftsQuery.eq("assignee_profile_id", profile.id);
+  if (isTrainee && assigneeCol) {
+    upcomingShiftsQuery = upcomingShiftsQuery.eq(assigneeCol, profile.id);
   }
 
   const { data: upcomingShifts, error: upcomingShiftsError } = await upcomingShiftsQuery;
@@ -212,8 +219,8 @@ export async function getDashboardData(profile: CurrentUserProfile) {
     .gte("shift_date", weekStart)
     .lte("shift_date", weekEnd);
 
-  if (isTrainee) {
-    weekShiftCountQuery = weekShiftCountQuery.eq("assignee_profile_id", profile.id);
+  if (isTrainee && assigneeCol) {
+    weekShiftCountQuery = weekShiftCountQuery.eq(assigneeCol, profile.id);
   }
 
   const { count: weekShiftCount, error: weekShiftError } = await weekShiftCountQuery;
@@ -228,12 +235,14 @@ export async function getDashboardData(profile: CurrentUserProfile) {
       weekEnd,
       areaType: "sala_operatoria",
       assigneeId: isTrainee ? profile.id : undefined,
+      assigneeColumn: assigneeCol,
     }),
     countShiftsInRangeByArea({
       weekStart,
       weekEnd,
       areaType: "rianimazione",
       assigneeId: isTrainee ? profile.id : undefined,
+      assigneeColumn: assigneeCol,
     }),
   ]);
 
