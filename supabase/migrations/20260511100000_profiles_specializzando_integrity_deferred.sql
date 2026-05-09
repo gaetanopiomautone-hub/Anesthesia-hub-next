@@ -5,6 +5,17 @@
 -- Se il trigger è stato creato senza DEFERRABLE (o ricreato a mano), l'UPDATE su profiles a
 -- specializzando fallisce prima dell'insert su specializzandi_profiles → rollback completo e
 -- nessuna riga in public.profiles coerente con auth.users.
+--
+-- Verifica operativa (SQL Editor), prima e dopo questa migration:
+--   select tgname, tgdeferrable, tginitdeferred
+--   from pg_trigger t
+--   join pg_class c on c.oid = t.tgrelid
+--   join pg_namespace n on n.oid = c.relnamespace
+--   where n.nspname = 'public'
+--     and c.relname = 'profiles'
+--     and not t.tgisinternal
+--     and tgname = 'profiles_specializzando_integrity';
+-- Drift tipico: tgdeferrable = f e tginitdeferred = f. Dopo apply: entrambi devono essere t.
 
 drop trigger if exists profiles_specializzando_integrity on public.profiles;
 
