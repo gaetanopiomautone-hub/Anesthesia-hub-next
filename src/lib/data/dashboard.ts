@@ -3,6 +3,7 @@ import { it } from "date-fns/locale";
 
 import type { CurrentUserProfile } from "@/lib/auth/get-current-user-profile";
 import type { AppRole } from "@/lib/auth/roles";
+import { probeLogbookTraineeFilterColumn } from "@/lib/data/logbook";
 import {
   probeShiftsAssigneeFilterColumn,
   type ShiftsAssigneeFilterColumn,
@@ -298,6 +299,9 @@ export async function getDashboardData(profile: CurrentUserProfile) {
   let monthProcedureCount = 0;
 
   if (canReadLogbookEntries(profile.role)) {
+    const logbookTraineeCol =
+      profile.role === "specializzando" ? await probeLogbookTraineeFilterColumn(supabase) : null;
+
     let logbookQuery = supabase
       .from("logbook_entries")
       .select(
@@ -313,8 +317,8 @@ export async function getDashboardData(profile: CurrentUserProfile) {
       .order("performed_on", { ascending: false })
       .limit(5);
 
-    if (profile.role === "specializzando") {
-      logbookQuery = logbookQuery.eq("trainee_profile_id", profile.id);
+    if (profile.role === "specializzando" && logbookTraineeCol) {
+      logbookQuery = logbookQuery.eq(logbookTraineeCol, profile.id);
     }
 
     const { data: logs, error: logbookError } = await logbookQuery;
@@ -349,8 +353,8 @@ export async function getDashboardData(profile: CurrentUserProfile) {
       .gte("performed_on", monthStart)
       .lte("performed_on", monthEnd);
 
-    if (profile.role === "specializzando") {
-      monthCountQuery = monthCountQuery.eq("trainee_profile_id", profile.id);
+    if (profile.role === "specializzando" && logbookTraineeCol) {
+      monthCountQuery = monthCountQuery.eq(logbookTraineeCol, profile.id);
     }
 
     const { count: monthCount, error: monthCountError } = await monthCountQuery;

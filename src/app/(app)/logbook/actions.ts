@@ -7,6 +7,7 @@ import { z } from "zod";
 
 import { requireUser } from "@/lib/auth/get-current-user-profile";
 import { canAccess } from "@/lib/auth/permissions";
+import { probeLogbookTraineeFilterColumn } from "@/lib/data/logbook";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 const logbookCreateSchema = z.object({
@@ -94,8 +95,9 @@ export async function createLogbookEntryAction(formData: FormData) {
   const parsed = parseLogbookCreateForm(formData);
 
   const supabase = await createServerSupabaseClient();
+  const traineeCol = await probeLogbookTraineeFilterColumn(supabase);
   const { error } = await supabase.from("logbook_entries").insert({
-    trainee_profile_id: profile.id,
+    [traineeCol]: profile.id,
     procedure_catalog_id: parsed.procedureCatalogId,
     performed_on: parsed.performedOn,
     supervision_level: parsed.supervisionLevel,
@@ -105,7 +107,7 @@ export async function createLogbookEntryAction(formData: FormData) {
     patient_reference: null,
     clinical_location_id: null,
     supervisor_profile_id: null,
-  });
+  } as Record<string, unknown>);
 
   if (error) {
     redirectToLogbookWithError(friendlyPostgresMessage(error));
@@ -120,10 +122,11 @@ export async function updateLogbookEntryAction(formData: FormData) {
   const parsed = parseLogbookUpdateForm(formData);
 
   const supabase = await createServerSupabaseClient();
+  const traineeCol = await probeLogbookTraineeFilterColumn(supabase);
 
   const { data: existing, error: existingError } = await supabase
     .from("logbook_entries")
-    .select("id, trainee_profile_id")
+    .select(`id, ${traineeCol}`)
     .eq("id", parsed.id)
     .single();
 
@@ -131,7 +134,8 @@ export async function updateLogbookEntryAction(formData: FormData) {
     redirectToLogbookWithError("Voce non trovata o non accessibile.");
   }
 
-  if (existing.trainee_profile_id !== profile.id) {
+  const ownerId = String((existing as Record<string, unknown>)[traineeCol] ?? "").trim();
+  if (ownerId !== profile.id) {
     redirectToLogbookWithError("Non puoi modificare voci di altri utenti.");
   }
 
@@ -147,7 +151,7 @@ export async function updateLogbookEntryAction(formData: FormData) {
       patient_reference: null,
     })
     .eq("id", parsed.id)
-    .eq("trainee_profile_id", profile.id)
+    .eq(traineeCol, profile.id)
     .select("id");
 
   if (error) {
