@@ -13,7 +13,7 @@ import { createServiceRoleSupabaseClient } from "@/lib/supabase/service-role";
 import { siteUrlForAuthRedirect } from "@/lib/supabase/site-url";
 
 export type CreateUserByAdminResult =
-  | { ok: true; message: string }
+  | { ok: true; message: string; recoveryEmailFailed?: boolean }
   | { ok: false; error: string };
 
 function parseOptionalInt(formData: FormData, key: string): number | null {
@@ -88,8 +88,8 @@ function buildBootstrapAuthUserMetadata(params: {
 }
 
 /**
- * Crea utente (admin) + allinea profili via RPC + invia email “imposta password” con recovery
- * (più affidabile di inviteUserByEmail con alcuni setup SMTP).
+ * Crea utente (admin) + allinea profili via RPC + tenta recovery email (imposta password).
+ * Se l’invio email fallisce (Auth/SMTP), l’utente resta comunque creato e il messaggio lo segnala.
  */
 export async function createUserByAdmin(formData: FormData): Promise<CreateUserByAdminResult> {
   try {
@@ -308,15 +308,25 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
     redirectTo: redirectToSetPassword,
   });
 
+  revalidatePath("/admin/users");
+
   if (recoveryErr) {
-    await supabase.auth.admin.deleteUser(userId);
+    const rawMsg =
+      recoveryErr && typeof recoveryErr === "object" && "message" in recoveryErr
+        ? String((recoveryErr as { message: unknown }).message)
+        : "";
+    const friendly = describeSupabaseAuthEmailError(rawMsg);
+    const technical = formatAuthAdminErr(recoveryErr);
+    const detail =
+      friendly !== rawMsg.trim() ? `${technical} — ${friendly}` : technical;
+
     return {
-      ok: false,
-      error: `[resetPasswordForEmail] Impossibile inviare il link: ${formatAuthAdminErr(recoveryErr)}`,
+      ok: true,
+      recoveryEmailFailed: true,
+      message:
+        `Utente creato e profilo sincronizzato. Invio email password fallito: ${detail}`,
     };
   }
-
-  revalidatePath("/admin/users");
 
   return {
     ok: true,

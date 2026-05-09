@@ -19,6 +19,7 @@ export function CreateUserForm() {
   const [assegnazione, setAssegnazione] = useState<(typeof ASSEGNAZIONE_SPECIALIZZANDO_VALUES)[number]>("rianimazione");
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState<string | null>(null);
+  const [okIsWarning, setOkIsWarning] = useState(false);
   const [isPending, startTransition] = useTransition();
 
   const isSpecializzando = role === "specializzando";
@@ -26,6 +27,7 @@ export function CreateUserForm() {
   const submit = () => {
     setError(null);
     setOk(null);
+    setOkIsWarning(false);
     const fd = new FormData();
     fd.set("nome", nome);
     fd.set("cognome", cognome);
@@ -43,6 +45,7 @@ export function CreateUserForm() {
           setError(res.error);
           return;
         }
+        setOkIsWarning(!!res.recoveryEmailFailed);
         setOk(res.message);
         setNome("");
         setCognome("");
@@ -162,7 +165,17 @@ export function CreateUserForm() {
       ) : null}
 
       {error ? <p className="text-sm text-destructive">{error}</p> : null}
-      {ok ? <p className="text-sm text-emerald-700">{ok}</p> : null}
+      {ok ? (
+        <p
+          className={
+            okIsWarning
+              ? "text-sm text-amber-800 dark:text-amber-200"
+              : "text-sm text-emerald-700 dark:text-emerald-300"
+          }
+        >
+          {ok}
+        </p>
+      ) : null}
 
       <Button type="button" onClick={submit} disabled={isPending}>
         {isPending ? "Invio invito..." : "Invia invito email"}
