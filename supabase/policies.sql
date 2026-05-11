@@ -91,8 +91,8 @@ grant execute on function public.current_user_is_admin() to authenticated;
 --   create policy profiles_select_own_scheduler_admin on public.profiles for select to authenticated
 --     using (auth.uid() = id or public.is_scheduler_or_admin());
 -- Rules:
--- - select: sé stesso oppure solo admin (anagrafiche elenco utenti; tutor non legge tutti i profiles)
--- - insert: solo admin (account creati dall’admin; service role bypassa RLS comunque)
+-- - select: se stesso oppure solo admin (anagrafiche elenco utenti; tutor non legge tutti i profiles)
+-- - insert: solo admin (account creati dall'admin; service role bypassa RLS comunque)
 -- - update: admin su tutti i campi; utente aggiorna solo campo contatto/esposizione nome
 --   senza modificare email, ruolo o is_active
 -- ---------------------------------------------------------------------------

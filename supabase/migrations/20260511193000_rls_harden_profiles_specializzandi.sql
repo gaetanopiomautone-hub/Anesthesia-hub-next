@@ -1,9 +1,9 @@
 -- RLS hardening: solo public.profiles e public.specializzandi_profiles (SELECT).
--- Sostituisce le policy "own + tutor/admin" con "own + admin" usando current_user_is_admin().
--- Nota: i tutor non leggono più l’anagrafica altrui via PostgREST su `profiles`; se serve (es. turni),
+-- Sostituisce le policy own+tutor/admin con own+admin tramite current_user_is_admin().
+-- Nota: i tutor non leggono piu l'anagrafica altrui via PostgREST su profiles; se serve (es. turni),
 --       introdurre una RPC security definer o flussi solo admin.
--- Rimuove anche le policy permissive legacy (*_scheduler_*) così il restringimento abbia effetto
--- (altrimenti due policy SELECT in OR lascerebbero ai tutor l’accesso completo).
+-- Rimuove anche le policy permissive legacy (*_scheduler_*) cosi il restringimento abbia effetto
+-- (altrimenti due policy SELECT in OR lascerebbero ai tutor l'accesso completo).
 
 create or replace function public.current_user_is_admin()
 returns boolean
