@@ -67,13 +67,31 @@ as $$
   )
 $$;
 
+-- Admin check con SECURITY DEFINER (evita ricorsione RLS su profiles nelle policy SELECT su profiles).
+create or replace function public.current_user_is_admin()
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from public.profiles p
+    where p.id = auth.uid()
+      and p.role = 'admin'
+      and coalesce(p.is_active, true)
+  );
+$$;
+
+grant execute on function public.current_user_is_admin() to authenticated;
+
 -- ---------------------------------------------------------------------------
 -- profiles
 -- Esempio policy SELECT equivalente inline:
 --   create policy profiles_select_own_scheduler_admin on public.profiles for select to authenticated
 --     using (auth.uid() = id or public.is_scheduler_or_admin());
 -- Rules:
--- - select: sé stesso oppure tutor/admin (anagrafiche per pianificazione)
+-- - select: sé stesso oppure solo admin (anagrafiche elenco utenti; tutor non legge tutti i profiles)
 -- - insert: solo admin (account creati dall’admin; service role bypassa RLS comunque)
 -- - update: admin su tutti i campi; utente aggiorna solo campo contatto/esposizione nome
 --   senza modificare email, ruolo o is_active
@@ -81,17 +99,16 @@ $$;
 
 alter table public.profiles enable row level security;
 
--- Nome legacy (solo drop); la policy vigente è `profiles_select_own_scheduler_admin` sotto.
-drop policy if exists "profiles_select_own_or_admin" on public.profiles;
 drop policy if exists "profiles_select_own_scheduler_admin" on public.profiles;
+drop policy if exists "profiles_select_own_or_admin" on public.profiles;
 
-create policy "profiles_select_own_scheduler_admin"
+create policy profiles_select_own_or_admin
 on public.profiles
 for select
 to authenticated
 using (
-  auth.uid() = id
-  or public.is_scheduler_or_admin()
+  id = auth.uid()
+  or public.current_user_is_admin()
 );
 
 drop policy if exists "profiles_insert_admin" on public.profiles;
@@ -133,21 +150,22 @@ with check (public.is_admin());
 -- ---------------------------------------------------------------------------
 -- specializzandi_profiles (solo colonne dedicate ai specializzandi)
 -- Rules:
--- - select: proprietario del profilo oppure tutor/admin
+-- - select: proprietario del profilo oppure solo admin
 -- - insert/update/delete: solo admin (o service role nella server action crea-utente)
 -- ---------------------------------------------------------------------------
 
 alter table public.specializzandi_profiles enable row level security;
 
 drop policy if exists "specializzandi_profiles_select_own_or_scheduler_admin" on public.specializzandi_profiles;
+drop policy if exists specializzandi_profiles_select_own_or_admin on public.specializzandi_profiles;
 
-create policy "specializzandi_profiles_select_own_or_scheduler_admin"
+create policy specializzandi_profiles_select_own_or_admin
 on public.specializzandi_profiles
 for select
 to authenticated
 using (
-  auth.uid() = user_id
-  or public.is_scheduler_or_admin()
+  user_id = auth.uid()
+  or public.current_user_is_admin()
 );
 
 drop policy if exists "specializzandi_profiles_insert_admin" on public.specializzandi_profiles;
