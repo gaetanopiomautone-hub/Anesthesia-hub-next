@@ -7,6 +7,7 @@ import { requireRole } from "@/lib/auth/get-current-user-profile";
 import type { AppRole } from "@/lib/auth/roles";
 import { appRoles } from "@/lib/auth/roles";
 import { pickSpecializzandiProfilesEmbed } from "@/lib/domain/specializzandi-embed";
+import { parseProfileGender } from "@/lib/domain/profile-greeting";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { nomeCognomeFromProfileRow } from "@/lib/utils/profile-display";
 
@@ -53,6 +54,7 @@ export default async function AdminEditUserPage({ params }: PageProps) {
     is_active: typeof raw.is_active === "boolean" ? raw.is_active : true,
     anno_specialita: spez?.anno_specialita ?? null,
     assegnazione: spez?.assegnazione ?? null,
+    gender: parseProfileGender(raw.gender),
   };
 
   return (

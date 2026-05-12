@@ -10,6 +10,7 @@ import {
   ASSEGNAZIONE_SPECIALIZZANDO_VALUES,
   type AssegnazioneSpecializzando,
 } from "@/lib/domain/specializzando-assignment";
+import { PROFILE_GENDER_UI_OPTIONS, type ProfileGender } from "@/lib/domain/profile-greeting";
 import { updateUserAdmin } from "@/app/(app)/admin/users/actions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +27,7 @@ export type EditUserInitial = {
   is_active: boolean;
   anno_specialita: number | null;
   assegnazione: string | null;
+  gender: ProfileGender;
 };
 
 export function EditUserForm({ initial }: { initial: EditUserInitial }) {
@@ -47,6 +49,7 @@ export function EditUserForm({ initial }: { initial: EditUserInitial }) {
       ? (initial.assegnazione as AssegnazioneSpecializzando)
       : "rianimazione",
   );
+  const [gender, setGender] = useState<string>(initial.gender ?? "");
 
   const isSpez = role === "specializzando";
 
@@ -61,6 +64,7 @@ export function EditUserForm({ initial }: { initial: EditUserInitial }) {
     fd.set("telefono", telefono.trim());
     fd.set("role", role);
     fd.set("is_active", isActive ? "true" : "false");
+    fd.set("gender", gender);
     if (isSpez) {
       fd.set("anno_specialita", anno);
       fd.set("assegnazione", assegnazione);
@@ -98,6 +102,22 @@ export function EditUserForm({ initial }: { initial: EditUserInitial }) {
       <div className="space-y-2">
         <Label htmlFor="eu-tel">Telefono</Label>
         <Input id="eu-tel" type="tel" value={telefono} onChange={(e) => setTelefono(e.target.value)} />
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="eu-gender">Come preferisci il saluto? (opzionale)</Label>
+        <select
+          id="eu-gender"
+          className="h-10 w-full max-w-md rounded-md border border-input bg-background px-3 text-sm"
+          value={gender}
+          onChange={(e) => setGender(e.target.value)}
+        >
+          {PROFILE_GENDER_UI_OPTIONS.map((o) => (
+            <option key={o.value || "unset"} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="space-y-2">

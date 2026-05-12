@@ -6,6 +6,7 @@ import { canAccess } from "@/lib/auth/permissions";
 import { appRoles } from "@/lib/auth/roles";
 import type { AppRole } from "@/lib/auth/roles";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { parseProfileGender, type ProfileGender } from "@/lib/domain/profile-greeting";
 import { profileDisplayName } from "@/lib/utils/profile-display";
 
 export type CurrentUserProfile = {
@@ -14,6 +15,8 @@ export type CurrentUserProfile = {
   nome: string;
   cognome: string;
   telefono: string | null;
+  /** Preferenza saluto dashboard; null = formula neutra («Ciao …»). */
+  gender: ProfileGender;
   /** Deriva da `nome`/`cognome` (compat intestazioni/ricerca precedenti). */
   full_name: string;
   role: AppRole;
@@ -41,6 +44,7 @@ function pickSpecializzandiRow(raw: unknown): { anno_specialita: number | null; 
 
 type AppSection =
   | "dashboard"
+  | "profilo"
   | "turni"
   | "turni-ferie"
   | "ferie"
@@ -75,6 +79,7 @@ export const getCurrentUserProfile = cache(async (): Promise<CurrentUserProfile 
       nome,
       cognome,
       telefono,
+      gender,
       role,
       is_active,
       specializzandi_profiles (
@@ -107,6 +112,7 @@ export const getCurrentUserProfile = cache(async (): Promise<CurrentUserProfile 
     nome,
     cognome,
     telefono: (profile as { telefono?: string | null }).telefono ?? null,
+    gender: parseProfileGender((profile as { gender?: unknown }).gender),
     full_name: profileDisplayName({ nome, cognome, email }),
     role: profile.role as AppRole,
     anno_specialita: spez?.anno_specialita ?? null,

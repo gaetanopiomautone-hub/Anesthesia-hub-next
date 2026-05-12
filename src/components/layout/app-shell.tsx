@@ -13,6 +13,7 @@ import {
   LayoutGrid,
   LibraryBig,
   ShieldCheck,
+  User,
   UserPlus,
   Users,
 } from "lucide-react";
@@ -24,6 +25,7 @@ import { cn } from "@/lib/utils/cn";
 
 const navigation = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
+  { href: "/profilo", label: "Profilo", icon: User },
   { href: "/turni", label: "Turni", icon: CalendarDays },
   { href: "/turni-ferie", label: "Turni & Ferie", icon: CalendarRange },
   { href: "/ferie", label: "Ferie e desiderata", icon: ShieldCheck },

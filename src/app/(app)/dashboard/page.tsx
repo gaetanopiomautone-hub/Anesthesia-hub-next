@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { roleLabels } from "@/lib/auth/roles";
 import { autonomyLabel, getDashboardData, leaveStatusLabel, supervisionLabel } from "@/lib/data/dashboard";
 import { leaveTypeLabelItalian } from "@/lib/data/leave-requests";
+import { profileDashboardGreetingTitle } from "@/lib/domain/profile-greeting";
 
 export default async function DashboardPage() {
   const user = await requireSection("dashboard");
@@ -20,7 +21,7 @@ export default async function DashboardPage() {
     <div className="space-y-6">
       <PageHeader
         eyebrow="Dashboard"
-        title={`Benvenuta, ${user.nome?.trim() || user.full_name}`}
+        title={profileDashboardGreetingTitle(user.gender, user.nome?.trim() || user.full_name)}
         description={roleHighlights[user.role]}
         actions={<Badge>{roleLabels[user.role]}</Badge>}
       />

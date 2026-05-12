@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 
 import { requireRole, requireUser } from "@/lib/auth/get-current-user-profile";
 import { parseAssegnazioneFromForm } from "@/lib/domain/specializzando-assignment";
+import { parseProfileGender } from "@/lib/domain/profile-greeting";
 import type { AppRole } from "@/lib/auth/roles";
 import { createServiceRoleSupabaseClient } from "@/lib/supabase/service-role";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -145,6 +146,8 @@ export async function updateUserAdmin(formData: FormData): Promise<AdminUserMuta
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const telefonoRaw = String(formData.get("telefono") ?? "").trim();
   const telefono = telefonoRaw === "" ? null : telefonoRaw;
+  const genderRaw = String(formData.get("gender") ?? "").trim();
+  const gender = genderRaw === "" ? null : parseProfileGender(genderRaw);
   const roleRaw = String(formData.get("role") ?? "").trim();
   const isActiveRaw = String(formData.get("is_active") ?? "true").trim().toLowerCase();
   const isActive = !(isActiveRaw === "false" || isActiveRaw === "0");
@@ -168,6 +171,10 @@ export async function updateUserAdmin(formData: FormData): Promise<AdminUserMuta
 
   if (!nome || !cognome || !email) {
     return { ok: false, error: "Nome, cognome e email sono obbligatori." };
+  }
+
+  if (genderRaw !== "" && gender === null) {
+    return { ok: false, error: "Preferenza saluto non valida." };
   }
 
   if (userId === actor.id && !isActive) {
@@ -238,6 +245,7 @@ export async function updateUserAdmin(formData: FormData): Promise<AdminUserMuta
       role === "specializzando" && assegnazioneDb
         ? assegnazioneDb
         : null,
+    p_gender: gender,
   });
 
   if (rpcErr) {

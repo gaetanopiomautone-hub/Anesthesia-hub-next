@@ -283,6 +283,7 @@ async function runCreateUserByAdmin(formData: FormData): Promise<CreateUserByAdm
       p_role: role,
       p_anno: role === "specializzando" && annoSpecialita !== undefined ? annoSpecialita : null,
       p_asseg: role === "specializzando" && assegnazioneEnum ? assegnazioneEnum : null,
+      p_gender: null,
     });
 
     if (rpcErr) {

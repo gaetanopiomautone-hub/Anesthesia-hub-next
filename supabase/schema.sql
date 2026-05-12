@@ -86,6 +86,13 @@ begin
   end if;
 end$$;
 
+do $$
+begin
+  if not exists (select 1 from pg_type where typname = 'profile_gender') then
+    create type public.profile_gender as enum ('male', 'female', 'other', 'prefer_not_to_say');
+  end if;
+end$$;
+
 -- ---------------------------------------------------------------------------
 -- profiles: single source of truth for application role (linked to Auth)
 -- ---------------------------------------------------------------------------
@@ -101,6 +108,9 @@ create table if not exists public.profiles (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
+
+alter table public.profiles
+  add column if not exists gender public.profile_gender null;
 
 create table if not exists public.specializzandi_profiles (
   user_id uuid primary key references public.profiles (id) on delete cascade,
@@ -643,7 +653,8 @@ create or replace function public.admin_apply_profile_update(
   p_is_active boolean,
   p_role public.app_role,
   p_anno int,
-  p_asseg public.assegnazione_specializzando
+  p_asseg public.assegnazione_specializzando,
+  p_gender public.profile_gender
 )
 returns void
 language plpgsql
@@ -673,6 +684,7 @@ begin
     email = lower(nullif(trim(p_email), '')),
     is_active = p_is_active,
     role = p_role,
+    gender = p_gender,
     updated_at = now()
   where id = p_user_id;
 
@@ -699,19 +711,19 @@ $$;
 
 revoke all on function public.admin_apply_profile_update(
   uuid, text, text, text, text, boolean,
-  public.app_role, integer, public.assegnazione_specializzando
+  public.app_role, integer, public.assegnazione_specializzando, public.profile_gender
 )
 from PUBLIC;
 
 revoke execute on function public.admin_apply_profile_update(
   uuid, text, text, text, text, boolean,
-  public.app_role, integer, public.assegnazione_specializzando
+  public.app_role, integer, public.assegnazione_specializzando, public.profile_gender
 )
 from anon, authenticated;
 
 grant execute on function public.admin_apply_profile_update(
   uuid, text, text, text, text, boolean,
-  public.app_role, integer, public.assegnazione_specializzando
+  public.app_role, integer, public.assegnazione_specializzando, public.profile_gender
 )
 to service_role;
 
