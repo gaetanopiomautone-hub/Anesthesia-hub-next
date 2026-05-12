@@ -215,7 +215,6 @@ export async function importMonthlyPlanning(params: {
     );
   } catch (e) {
     // Audit must never block production import.
-    // eslint-disable-next-line no-console
     console.error("Audit failed, continuing import", e);
   }
 

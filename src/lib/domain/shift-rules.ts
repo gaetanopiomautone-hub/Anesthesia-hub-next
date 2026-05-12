@@ -9,12 +9,13 @@ import type { ShiftItemRow } from "./monthly-shifts";
 
 type EditorRole = "specializzando" | "tutor" | "admin";
 
-/** Assegnazioni: draft → spec+admin; submitted → solo admin; approved → nessuno; tutor → no. */
+/** Assegnazioni: draft/submitted → solo admin; approved → nessuno; tutor → no; specializzando → no (planning interno). */
 export function canEditAssignmentsByPlanAndRole(planStatus: MonthlyShiftPlanStatus, role: EditorRole): boolean {
   if (role === "tutor") return false;
+  if (role === "specializzando") return false;
   if (planStatus === "approved") return false;
   if (planStatus === "submitted") return role === "admin";
-  if (planStatus === "draft") return role === "admin" || role === "specializzando";
+  if (planStatus === "draft") return role === "admin";
   return false;
 }
 
@@ -59,6 +60,7 @@ export function validateSalaAmbSameDay(
 export type UserLoadLine = {
   userId: string;
   displayName: string;
+  /** Turni assistenziali (sala + ambulatorio); esclusa la reperibilità dal monte “carico” turni. */
   total: number;
   mattine: number;
   pomeriggi: number;
@@ -96,13 +98,14 @@ export function buildUserLoadLines(
       });
     }
     const u = by.get(id)!;
-    u.total += 1;
-    if (i.kind === "sala" && i.period === "mattina") u.mattine += 1;
-    if (i.kind === "sala" && i.period === "pomeriggio") u.pomeriggi += 1;
-    if (i.kind === "ambulatorio") u.ambulatorio += 1;
     if (i.kind === "reperibilita") {
       u.reper += 1;
       if (isSatSunYmd(i.shift_date)) u.weekendReper += 1;
+    } else {
+      u.total += 1;
+      if (i.kind === "sala" && i.period === "mattina") u.mattine += 1;
+      if (i.kind === "sala" && i.period === "pomeriggio") u.pomeriggi += 1;
+      if (i.kind === "ambulatorio") u.ambulatorio += 1;
     }
   }
 
@@ -114,17 +117,19 @@ export function computeLoadWarnings(lines: UserLoadLine[]): string[] {
   const w: string[] = [];
   if (lines.length < 2) return w;
 
-  const withAny = lines.filter((l) => l.total > 0);
-  if (withAny.length < 2) return w;
+  const withAssistenziali = lines.filter((l) => l.total > 0);
+  if (withAssistenziali.length < 2) return w;
 
-  const totals = withAny.map((l) => l.total);
+  const totals = withAssistenziali.map((l) => l.total);
   const maxT = Math.max(...totals);
   const minT = Math.min(...totals);
   if (maxT - minT >= 4) {
-    w.push("Scarto elevato tra carico totale: verifica l’equilibrio assegnazioni tra colleghi.");
+    w.push(
+      "Scarto elevato tra carico assistenziale (sala/ambulatorio, escl. reper): verifica l’equilibrio assegnazioni tra colleghi.",
+    );
   }
 
-  for (const l of withAny) {
+  for (const l of withAssistenziali) {
     if (l.total >= 3 && l.pomeriggi / l.total > 0.55) {
       w.push(
         `Possibile eccesso pomeriggi per ${l.displayName} (${l.pomeriggi}/${l.total} turni): controlla la rotazione.`,
@@ -132,7 +137,7 @@ export function computeLoadWarnings(lines: UserLoadLine[]): string[] {
     }
   }
 
-  const reperLines = withAny.filter((l) => l.weekendReper > 0);
+  const reperLines = lines.filter((l) => l.weekendReper > 0);
   if (reperLines.length >= 2) {
     const rs = reperLines.map((l) => l.weekendReper);
     if (Math.max(...rs) - Math.min(...rs) >= 2) {
@@ -161,15 +166,24 @@ export function findWeekdayDatesWithoutSalaInMonth(
   return out;
 }
 
-/** Chiavi duplicate: stessa data, sala, fascia (mattina/pomeriggio). */
+/** Chiavi duplicate: stessa data, fascia (mattina/pomeriggio) e stessa `assignment_location_id` se presente, altrimenti `room_name`. */
 export function findDuplicateSalaSlotKeys(
-  salaItems: { shift_date: string; kind: string; room_name: string | null; period: string }[],
+  salaItems: {
+    shift_date: string;
+    kind: string;
+    room_name: string | null;
+    period: string;
+    assignment_location_id?: string | null;
+  }[],
 ): string[] {
   const counts = new Map<string, number>();
   for (const i of salaItems) {
     if (i.kind !== "sala") continue;
-    const room = (i.room_name ?? "").trim() || "?";
-    const k = `${i.shift_date}|${i.period}|${room}`;
+    const slotKey =
+      i.assignment_location_id && String(i.assignment_location_id).length > 0
+        ? `loc:${i.assignment_location_id}`
+        : `room:${(i.room_name ?? "").trim() || "?"}`;
+    const k = `${i.shift_date}|${i.period}|${slotKey}`;
     counts.set(k, (counts.get(k) ?? 0) + 1);
   }
   const dups: string[] = [];

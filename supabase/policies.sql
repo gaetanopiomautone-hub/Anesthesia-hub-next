@@ -1,6 +1,6 @@
 -- Minimal and strict RLS policies for the core workflow tables:
 --   profiles, leave_requests, procedure_catalog, logbook_entries, shifts,
---   monthly_shift_plans, shift_items
+--   monthly_shift_plans, shift_items, trainee_assignment_location_competencies
 -- Assumes public.profiles is the single source of truth for role.
 
 -- ---------------------------------------------------------------------------
@@ -109,6 +109,29 @@ to authenticated
 using (
   id = auth.uid()
   or public.current_user_is_admin()
+);
+
+-- Specializzandi assegnati su un piano approvato e pubblicato: nome/email/telefono per tutor/specializzando
+-- (admin legge comunque tutta l’anagrafica via profiles_select_own_or_admin).
+drop policy if exists "profiles_select_turni_assignees_on_approved_plan" on public.profiles;
+
+create policy "profiles_select_turni_assignees_on_approved_plan"
+on public.profiles
+for select
+to authenticated
+using (
+  profiles.role = 'specializzando'
+  and coalesce(profiles.is_active, true) = true
+  and (public.is_admin() or public.is_tutor() or public.is_specializzando())
+  and exists (
+    select 1
+    from public.shift_items si
+    inner join public.monthly_shift_plans p on p.id = si.plan_id
+    where si.assigned_to = profiles.id
+      and p.status = 'approved'
+      and p.published_at is not null
+      and si.assigned_to is not null
+  )
 );
 
 drop policy if exists "profiles_insert_admin" on public.profiles;
@@ -471,11 +494,85 @@ using (public.is_admin())
 with check (public.is_admin());
 
 -- ---------------------------------------------------------------------------
+-- assignment_locations (sale / attività per planning mensile)
+-- ---------------------------------------------------------------------------
+
+alter table public.assignment_locations enable row level security;
+
+drop policy if exists "assignment_locations_select_planning_roles" on public.assignment_locations;
+create policy "assignment_locations_select_planning_roles"
+on public.assignment_locations
+for select
+to authenticated
+using (
+  public.is_admin()
+  or public.is_tutor()
+  or public.is_specializzando()
+);
+
+drop policy if exists "assignment_locations_insert_admin" on public.assignment_locations;
+create policy "assignment_locations_insert_admin"
+on public.assignment_locations
+for insert
+to authenticated
+with check (public.is_admin());
+
+drop policy if exists "assignment_locations_update_admin" on public.assignment_locations;
+create policy "assignment_locations_update_admin"
+on public.assignment_locations
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+-- ---------------------------------------------------------------------------
+-- trainee_planning_blocks (indisponibilità / didattica per conflitti planning)
+-- ---------------------------------------------------------------------------
+
+alter table public.trainee_planning_blocks enable row level security;
+
+drop policy if exists "trainee_planning_blocks_select_planning_roles" on public.trainee_planning_blocks;
+create policy "trainee_planning_blocks_select_planning_roles"
+on public.trainee_planning_blocks
+for select
+to authenticated
+using (
+  public.is_admin()
+  or public.is_tutor()
+  or (public.is_specializzando() and user_id = auth.uid())
+);
+
+drop policy if exists "trainee_planning_blocks_insert_admin_or_self" on public.trainee_planning_blocks;
+create policy "trainee_planning_blocks_insert_admin_or_self"
+on public.trainee_planning_blocks
+for insert
+to authenticated
+with check (
+  public.is_admin()
+  or (public.is_specializzando() and user_id = auth.uid())
+);
+
+drop policy if exists "trainee_planning_blocks_update_admin_or_self" on public.trainee_planning_blocks;
+create policy "trainee_planning_blocks_update_admin_or_self"
+on public.trainee_planning_blocks
+for update
+to authenticated
+using (public.is_admin() or (public.is_specializzando() and user_id = auth.uid()))
+with check (public.is_admin() or (public.is_specializzando() and user_id = auth.uid()));
+
+drop policy if exists "trainee_planning_blocks_delete_admin_or_self" on public.trainee_planning_blocks;
+create policy "trainee_planning_blocks_delete_admin_or_self"
+on public.trainee_planning_blocks
+for delete
+to authenticated
+using (public.is_admin() or (public.is_specializzando() and user_id = auth.uid()));
+
+-- ---------------------------------------------------------------------------
 -- monthly_shift_plans
 -- Rules:
--- - select: admin, tutor, specializzando
+-- - select: admin, tutor; specializzando solo piano approvato e pubblicato
 -- - insert: solo admin (creazione piano / import mese)
--- - update: admin completo; specializzando solo se non approved e non imposta approved
+-- - update: solo admin
 -- - delete: solo admin
 -- - approvazione mese: solo admin (status = approved)
 -- ---------------------------------------------------------------------------
@@ -490,7 +587,11 @@ to authenticated
 using (
   public.is_admin()
   or public.is_tutor()
-  or public.is_specializzando()
+  or (
+    public.is_specializzando()
+    and status = 'approved'
+    and published_at is not null
+  )
 );
 
 drop policy if exists "monthly_shift_plans_insert_admin" on public.monthly_shift_plans;
@@ -509,19 +610,6 @@ using (public.is_admin())
 with check (public.is_admin());
 
 drop policy if exists "monthly_shift_plans_update_specializzando_non_approved" on public.monthly_shift_plans;
-create policy "monthly_shift_plans_update_specializzando_non_approved"
-on public.monthly_shift_plans
-for update
-to authenticated
-using (
-  public.is_specializzando()
-  and status in ('draft', 'submitted')
-)
-with check (
-  public.is_specializzando()
-  and status in ('draft', 'submitted')
-  and status <> 'approved'
-);
 
 drop policy if exists "monthly_shift_plans_delete_admin" on public.monthly_shift_plans;
 create policy "monthly_shift_plans_delete_admin"
@@ -533,9 +621,9 @@ using (public.is_admin());
 -- ---------------------------------------------------------------------------
 -- shift_items
 -- Rules:
--- - select: admin, tutor, specializzando
+-- - select: admin, tutor; specializzando solo se piano approvato e pubblicato
 -- - insert: solo admin (import Excel / righe generate lato app)
--- - update: admin sempre; specializzando solo se piano in draft (dopo invio: solo admin)
+-- - update: solo admin
 -- - delete: solo admin
 -- ---------------------------------------------------------------------------
 
@@ -549,7 +637,16 @@ to authenticated
 using (
   public.is_admin()
   or public.is_tutor()
-  or public.is_specializzando()
+  or (
+    public.is_specializzando()
+    and exists (
+      select 1
+      from public.monthly_shift_plans p
+      where p.id = shift_items.plan_id
+        and p.status = 'approved'
+        and p.published_at is not null
+    )
+  )
 );
 
 drop policy if exists "shift_items_insert_admin" on public.shift_items;
@@ -568,28 +665,7 @@ using (public.is_admin())
 with check (public.is_admin());
 
 drop policy if exists "shift_items_update_specializzando_if_plan_not_approved" on public.shift_items;
-create policy "shift_items_update_specializzando_draft_only"
-on public.shift_items
-for update
-to authenticated
-using (
-  public.is_specializzando()
-  and exists (
-    select 1
-    from public.monthly_shift_plans p
-    where p.id = shift_items.plan_id
-      and p.status = 'draft'
-  )
-)
-with check (
-  public.is_specializzando()
-  and exists (
-    select 1
-    from public.monthly_shift_plans p
-    where p.id = shift_items.plan_id
-      and p.status = 'draft'
-  )
-);
+drop policy if exists "shift_items_update_specializzando_draft_only" on public.shift_items;
 
 drop policy if exists "shift_items_delete_admin" on public.shift_items;
 create policy "shift_items_delete_admin"
@@ -604,6 +680,45 @@ using (public.is_admin());
 -- - select: solo admin
 -- - insert/update/delete: solo service role (nessuna policy authenticated)
 -- ---------------------------------------------------------------------------
+
+-- ---------------------------------------------------------------------------
+-- trainee_assignment_location_competencies
+-- ---------------------------------------------------------------------------
+
+alter table public.trainee_assignment_location_competencies enable row level security;
+
+drop policy if exists "trainee_competencies_select_admin_tutor_own" on public.trainee_assignment_location_competencies;
+create policy "trainee_competencies_select_admin_tutor_own"
+on public.trainee_assignment_location_competencies
+for select
+to authenticated
+using (
+  public.is_admin()
+  or public.is_tutor()
+  or trainee_id = auth.uid()
+);
+
+drop policy if exists "trainee_competencies_insert_admin" on public.trainee_assignment_location_competencies;
+create policy "trainee_competencies_insert_admin"
+on public.trainee_assignment_location_competencies
+for insert
+to authenticated
+with check (public.is_admin());
+
+drop policy if exists "trainee_competencies_update_admin" on public.trainee_assignment_location_competencies;
+create policy "trainee_competencies_update_admin"
+on public.trainee_assignment_location_competencies
+for update
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "trainee_competencies_delete_admin" on public.trainee_assignment_location_competencies;
+create policy "trainee_competencies_delete_admin"
+on public.trainee_assignment_location_competencies
+for delete
+to authenticated
+using (public.is_admin());
 
 alter table public.planning_change_log enable row level security;
 

@@ -26,7 +26,6 @@ export async function createClinicalLocationAction(formData: FormData): Promise<
   const areaTypeRaw = String(formData.get("area_type") ?? "sala_operatoria").trim();
   const area_type = areaTypeRaw === "rianimazione" ? "rianimazione" : "sala_operatoria";
   const code = String(formData.get("code") ?? "").trim();
-  // eslint-disable-next-line no-console
   console.log("createClinicalLocationAction payload", { name, areaType: area_type, code });
 
   if (!name) {
@@ -54,7 +53,6 @@ export async function createClinicalLocationAction(formData: FormData): Promise<
     .single();
 
   if (error) {
-    // eslint-disable-next-line no-console
     console.error("Create clinical location failed", {
       message: error.message,
       details: error.details,
@@ -64,7 +62,6 @@ export async function createClinicalLocationAction(formData: FormData): Promise<
     return { ok: false, error: `${error.message}${error.details ? ` — ${error.details}` : ""}` };
   }
 
-  // eslint-disable-next-line no-console
   console.log("Clinical location created", data);
   revalidatePath("/admin/locations");
   revalidatePath("/admin");

@@ -326,6 +326,8 @@ create table if not exists public.monthly_shift_plans (
   approved_by uuid references public.profiles (id) on delete set null,
   approved_at timestamptz,
   reopened_at timestamptz,
+  published_at timestamptz,
+  published_by uuid references public.profiles (id) on delete set null,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (year, month)
@@ -358,6 +360,126 @@ create index if not exists shift_items_clinical_area_id_idx
 
 create index if not exists shift_items_plan_id_shift_date_idx
   on public.shift_items (plan_id, shift_date);
+
+-- Sale / attività planning (assegnazione turni mensili; enum anche per voci future ferie/congresso)
+do $$
+begin
+  create type public.assignment_location_kind as enum (
+    'sala',
+    'ambulatorio',
+    'didattica',
+    'ferie',
+    'congresso',
+    'altro'
+  );
+exception
+  when duplicate_object then null;
+end
+$$;
+
+create table if not exists public.assignment_locations (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  kind public.assignment_location_kind not null default 'sala',
+  is_active boolean not null default true,
+  sort_order integer not null default 0,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+alter table public.shift_items
+  add column if not exists assignment_location_id uuid references public.assignment_locations (id) on delete set null;
+
+alter table public.shift_items
+  add column if not exists notes text;
+
+create index if not exists shift_items_assignment_location_id_idx
+  on public.shift_items (assignment_location_id)
+  where assignment_location_id is not null;
+
+do $$
+begin
+  create type public.trainee_planning_block_period as enum ('morning', 'afternoon', 'full_day');
+exception
+  when duplicate_object then null;
+end
+$$;
+
+do $$
+begin
+  create type public.trainee_planning_block_kind as enum ('didattica', 'congresso', 'desiderata', 'altro');
+exception
+  when duplicate_object then null;
+end
+$$;
+
+create table if not exists public.trainee_planning_blocks (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references public.profiles (id) on delete cascade,
+  block_date date not null,
+  period public.trainee_planning_block_period not null,
+  kind public.trainee_planning_block_kind not null,
+  title text not null default '',
+  note text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists trainee_planning_blocks_user_date_idx
+  on public.trainee_planning_blocks (user_id, block_date);
+
+drop trigger if exists trainee_planning_blocks_set_updated_at on public.trainee_planning_blocks;
+create trigger trainee_planning_blocks_set_updated_at
+before update on public.trainee_planning_blocks
+for each row execute function public.set_updated_at();
+
+do $$
+begin
+  create type public.trainee_location_competency_status as enum (
+    'abilitato',
+    'preferenziale',
+    'rotazione',
+    'non_assegnabile'
+  );
+exception
+  when duplicate_object then null;
+end
+$$;
+
+create table if not exists public.trainee_assignment_location_competencies (
+  id uuid primary key default gen_random_uuid(),
+  trainee_id uuid not null references public.profiles (id) on delete cascade,
+  assignment_location_id uuid references public.assignment_locations (id) on delete cascade,
+  clinical_area_id uuid references public.clinical_areas (id) on delete cascade,
+  status public.trainee_location_competency_status not null,
+  note text,
+  starts_on date,
+  ends_on date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  constraint trainee_competency_at_least_one_target check (
+    assignment_location_id is not null or clinical_area_id is not null
+  ),
+  constraint trainee_competency_date_range check (
+    starts_on is null or ends_on is null or ends_on >= starts_on
+  )
+);
+
+create index if not exists trainee_competencies_trainee_id_idx
+  on public.trainee_assignment_location_competencies (trainee_id);
+
+create index if not exists trainee_competencies_assignment_location_id_idx
+  on public.trainee_assignment_location_competencies (assignment_location_id)
+  where assignment_location_id is not null;
+
+create index if not exists trainee_competencies_clinical_area_id_idx
+  on public.trainee_assignment_location_competencies (clinical_area_id)
+  where clinical_area_id is not null;
+
+drop trigger if exists trainee_competencies_set_updated_at on public.trainee_assignment_location_competencies;
+create trigger trainee_competencies_set_updated_at
+before update on public.trainee_assignment_location_competencies
+for each row execute function public.set_updated_at();
 
 create table if not exists public.planning_change_log (
   id uuid primary key default gen_random_uuid(),
@@ -432,6 +554,11 @@ for each row execute function public.set_updated_at();
 drop trigger if exists clinical_areas_set_updated_at on public.clinical_areas;
 create trigger clinical_areas_set_updated_at
 before update on public.clinical_areas
+for each row execute function public.set_updated_at();
+
+drop trigger if exists assignment_locations_set_updated_at on public.assignment_locations;
+create trigger assignment_locations_set_updated_at
+before update on public.assignment_locations
 for each row execute function public.set_updated_at();
 
 drop trigger if exists specializzandi_profiles_set_updated_at on public.specializzandi_profiles;

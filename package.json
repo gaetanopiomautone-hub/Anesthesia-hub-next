@@ -6,7 +6,13 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:unit": "vitest run",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "e2e:headed": "playwright test --headed",
+    "e2e:debug": "playwright test --debug",
+    "e2e:install": "playwright install chromium"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -19,6 +25,7 @@
     "date-fns": "^3.6.0",
     "lucide-react": "^1.8.0",
     "next": "^15.5.0",
+    "pdfkit": "^0.18.0",
     "react": "^19.1.1",
     "react-day-picker": "^9.14.0",
     "react-dom": "^19.1.1",
@@ -31,9 +38,11 @@
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
+    "@playwright/test": "^1.60.0",
     "@tailwindcss/typography": "^0.5.16",
     "@testing-library/jest-dom": "^6.9.1",
     "@types/node": "^22.16.5",
+    "@types/pdfkit": "^0.17.6",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
     "@vitejs/plugin-react-swc": "^4.3.0",

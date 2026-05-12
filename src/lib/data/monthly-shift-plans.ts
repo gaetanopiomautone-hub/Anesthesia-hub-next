@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
+import type { AssignmentLocationKind } from "@/lib/domain/assignment-locations";
 import { assertUserIdIsAssignableTrainee } from "@/lib/data/assignable-trainee-guard";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import type { MonthlyShiftPlanRow, ShiftItemRow } from "@/lib/domain/monthly-shifts";
@@ -15,6 +16,8 @@ function mapPlan(raw: Record<string, unknown>): MonthlyShiftPlanRow {
     approved_by: raw.approved_by ? String(raw.approved_by) : null,
     approved_at: raw.approved_at ? String(raw.approved_at) : null,
     reopened_at: raw.reopened_at ? String(raw.reopened_at) : null,
+    published_at: raw.published_at ? String(raw.published_at) : null,
+    published_by: raw.published_by ? String(raw.published_by) : null,
     created_at: String(raw.created_at ?? ""),
     updated_at: String(raw.updated_at ?? ""),
   };
@@ -32,15 +35,36 @@ function pickClinicalAreaEmbed(raw: unknown): ShiftItemRow["clinical_area"] {
   };
 }
 
+function pickAssignmentLocationEmbed(raw: unknown): ShiftItemRow["assignment_location"] {
+  if (raw == null || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  if (!o.id) return null;
+  return {
+    id: String(o.id),
+    name: String(o.name ?? ""),
+    kind: (o.kind as AssignmentLocationKind) ?? "sala",
+    is_active: Boolean(o.is_active ?? true),
+  };
+}
+
 function mapItem(raw: Record<string, unknown>): ShiftItemRow {
   const embed =
     pickClinicalAreaEmbed(raw.clinical_areas) ??
     pickClinicalAreaEmbed(Array.isArray(raw.clinical_areas) ? raw.clinical_areas[0] : null);
 
+  const locEmbed =
+    pickAssignmentLocationEmbed(raw.assignment_locations) ??
+    pickAssignmentLocationEmbed(Array.isArray(raw.assignment_locations) ? raw.assignment_locations[0] : null);
+
   const clinical_area_id =
     raw.clinical_area_id != null && String(raw.clinical_area_id).length > 0
       ? String(raw.clinical_area_id)
       : embed?.id ?? null;
+
+  const assignment_location_id =
+    raw.assignment_location_id != null && String(raw.assignment_location_id).length > 0
+      ? String(raw.assignment_location_id)
+      : locEmbed?.id ?? null;
 
   return {
     id: String(raw.id ?? ""),
@@ -55,6 +79,9 @@ function mapItem(raw: Record<string, unknown>): ShiftItemRow {
     specialty: raw.specialty != null ? String(raw.specialty) : null,
     clinical_area_id,
     clinical_area: embed,
+    assignment_location_id,
+    assignment_location: locEmbed,
+    notes: raw.notes != null && String(raw.notes).length > 0 ? String(raw.notes) : null,
     source: (raw.source as ShiftItemRow["source"]) ?? "generated",
     assigned_to: raw.assigned_to ? String(raw.assigned_to) : null,
     created_at: String(raw.created_at ?? ""),
@@ -92,7 +119,8 @@ export async function listShiftItemsByPlanId(planId: string): Promise<ShiftItemR
     .select(
       `
       *,
-      clinical_areas ( id, code, name, is_active )
+      clinical_areas ( id, code, name, is_active ),
+      assignment_locations ( id, name, kind, is_active )
     `,
     )
     .eq("plan_id", planId)
@@ -111,7 +139,8 @@ export async function getShiftItemById(shiftItemId: string): Promise<ShiftItemRo
     .select(
       `
       *,
-      clinical_areas ( id, code, name, is_active )
+      clinical_areas ( id, code, name, is_active ),
+      assignment_locations ( id, name, kind, is_active )
     `,
     )
     .eq("id", shiftItemId)
@@ -213,6 +242,8 @@ export async function reopenMonthlyPlan(planId: string) {
       reopened_at: new Date().toISOString(),
       approved_by: null,
       approved_at: null,
+      published_at: null,
+      published_by: null,
     })
     .eq("id", planId)
     .eq("status", "approved")
@@ -220,4 +251,26 @@ export async function reopenMonthlyPlan(planId: string) {
 
   if (error) throw new Error(error.message);
   if (!data?.length) throw new Error("Riapertura non possibile: il piano non è in stato approvato.");
+}
+
+/** Pubblicazione ufficiale al reparto (solo piano già approvato, una tantum fino a riapertura). */
+export async function publishMonthlyShiftsPlan(planId: string, userId: string) {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("monthly_shift_plans")
+    .update({
+      published_at: new Date().toISOString(),
+      published_by: userId,
+    })
+    .eq("id", planId)
+    .eq("status", "approved")
+    .is("published_at", null)
+    .select("id");
+
+  if (error) throw new Error(error.message);
+  if (!data?.length) {
+    throw new Error(
+      "Pubblicazione non possibile: il piano non è approvato oppure i turni risultano già pubblicati.",
+    );
+  }
 }

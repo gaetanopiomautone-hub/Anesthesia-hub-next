@@ -31,7 +31,6 @@ export async function listActiveSalaOperatoriaLocations(): Promise<SalaOperatori
       .order("name", { ascending: true });
 
     if (error) {
-      // eslint-disable-next-line no-console
       console.error("clinical_locations query failed:", error.message);
       return [];
     }
@@ -41,7 +40,6 @@ export async function listActiveSalaOperatoriaLocations(): Promise<SalaOperatori
       name: String((r as { name: string }).name),
     }));
   } catch (e) {
-    // eslint-disable-next-line no-console
     console.error("listActiveSalaOperatoriaLocations:", e);
     return [];
   }

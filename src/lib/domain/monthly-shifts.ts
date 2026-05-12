@@ -1,5 +1,10 @@
 /** Modello turnistica mensile (tabelle `monthly_shift_plans` + `shift_items`). */
 
+import { format, parseISO } from "date-fns";
+import { it } from "date-fns/locale";
+
+import type { AssignmentLocationKind } from "@/lib/domain/assignment-locations";
+
 export type MonthlyShiftPlanStatus = "draft" | "submitted" | "approved";
 
 export type ShiftItemKind = "sala" | "ambulatorio" | "reperibilita";
@@ -18,9 +23,60 @@ export type MonthlyShiftPlanRow = {
   approved_by: string | null;
   approved_at: string | null;
   reopened_at: string | null;
+  /** Ufficializzazione al reparto (solo con `status === "approved"`). */
+  published_at: string | null;
+  published_by: string | null;
   created_at: string;
   updated_at: string;
 };
+
+/** Solo per UI specializzando prima della pubblicazione (RLS non espone il piano reale). */
+export function syntheticMonthlyShiftPlanForPrepublishShell(params: {
+  id: string;
+  year: number;
+  month: number;
+  status: MonthlyShiftPlanStatus;
+}): MonthlyShiftPlanRow {
+  return {
+    id: params.id,
+    year: params.year,
+    month: params.month,
+    status: params.status,
+    created_by: null,
+    submitted_at: null,
+    approved_by: null,
+    approved_at: null,
+    reopened_at: null,
+    published_at: null,
+    published_by: null,
+    created_at: "",
+    updated_at: "",
+  };
+}
+
+/** Turni “pubblicati” per il reparto: approvazione + passaggio esplicito pubblica. */
+export function isMonthlyShiftsPublished(plan: MonthlyShiftPlanRow): boolean {
+  return plan.status === "approved" && Boolean(plan.published_at?.trim());
+}
+
+/** Testo unico per PDF / export (stesso significato del foglio Excel). */
+export function formatShiftPlanPublicationLineItalian(plan: MonthlyShiftPlanRow): string {
+  if (!isMonthlyShiftsPublished(plan) || !plan.published_at?.trim()) {
+    return "Pubblicazione: non ancora pubblicato";
+  }
+  const d = parseISO(plan.published_at);
+  if (Number.isNaN(d.getTime())) {
+    return "Pubblicazione: non ancora pubblicato";
+  }
+  const day = format(d, "dd/MM/yyyy", { locale: it });
+  const time = format(d, "HH:mm", { locale: it });
+  return `Pubblicazione: pubblicato il ${day} alle ${time}`;
+}
+
+/** Testo dopo «Pubblicazione:» (es. colonna Excel accanto a «Pubblicazione turni»). */
+export function formatShiftPlanPublicationSummaryItalian(plan: MonthlyShiftPlanRow): string {
+  return formatShiftPlanPublicationLineItalian(plan).replace(/^Pubblicazione:\s*/i, "");
+}
 
 export type ShiftItemRow = {
   id: string;
@@ -42,6 +98,15 @@ export type ShiftItemRow = {
     name: string;
     is_active: boolean;
   } | null;
+  assignment_location_id: string | null;
+  /** Join `assignment_locations` (sale / attività planning). */
+  assignment_location: {
+    id: string;
+    name: string;
+    kind: AssignmentLocationKind;
+    is_active: boolean;
+  } | null;
+  notes: string | null;
   source: ShiftItemSource;
   assigned_to: string | null;
   created_at: string;

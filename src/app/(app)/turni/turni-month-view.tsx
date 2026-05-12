@@ -1,6 +1,6 @@
 "use client";
 
-import { addMonths, format, parse, subMonths } from "date-fns";
+import { addMonths, endOfMonth, format, parse, parseISO, startOfMonth, subMonths } from "date-fns";
 import { it } from "date-fns/locale";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -15,17 +15,48 @@ import {
   type DeletePlanningSlotState,
   updatePlanningSlotClinicalAreaAction,
   type UpdatePlanningSlotClinicalAreaState,
+  updatePlanningSlotAssignmentLocationAction,
+  type UpdatePlanningSlotAssignmentLocationState,
   assignShiftItemAction,
   submitMonthlyPlanAction,
   approveMonthlyPlanAction,
   reopenMonthlyPlanAction,
+  publishMonthlyShiftsPlanAction,
 } from "@/app/(app)/turni/monthly-plan-actions";
 import { buildUserLoadLines, canEditAssignmentsByPlanAndRole, computeLoadWarnings } from "@/lib/domain/shift-rules";
+import type { PlanningBlockInput, PlanningLeaveRangeInput } from "@/lib/domain/planning-assistential-conflicts";
+import { buildPlanningAssistentialConflicts } from "@/lib/domain/planning-assistential-conflicts";
+import type { TraineeLocationCompetencyInput } from "@/lib/domain/trainee-competency-assignment-hint";
+import {
+  competencySelectOptionMeta,
+  evaluateShiftAssignmentCompetencyHint,
+} from "@/lib/domain/trainee-competency-assignment-hint";
+import {
+  buildTraineeWeeklyPlanningSummaries,
+  collectTraineeWeeklySummaryUserIds,
+} from "@/lib/domain/trainee-weekly-planning-summary";
+import {
+  buildMonthlyTraineeShiftStatistics,
+  collectTraineeIdsWithAssignmentsInMonth,
+} from "@/lib/domain/monthly-trainee-shift-statistics";
+import {
+  buildWeeklyAssistentialLoads,
+  formatWeekRangeItalian,
+  userIdsWithAnyWeeklyAssistentialExcess,
+  WEEKLY_ASSISTENTIAL_CAP_HOURS,
+} from "@/lib/domain/weekly-assistential-hours";
+import {
+  addTraineePlanningBlockAction,
+  type AddTraineePlanningBlockState,
+} from "@/app/(app)/turni/trainee-planning-block-actions";
+import { TraineeWeeklySummaryPanel } from "@/app/(app)/turni/trainee-weekly-summary-panel";
 import type { MonthlyShiftPlanRow, ShiftItemRow } from "@/lib/domain/monthly-shifts";
 import type { PlanningChangeLogRow } from "@/lib/data/planning-change-log";
 import {
+  isMonthlyShiftsPublished,
   monthlyShiftPlanStatusLabelItalian,
   shiftItemKindLabelItalian,
+  shiftItemPeriodLabelItalian,
   shiftItemSourceLabelItalian,
 } from "@/lib/domain/monthly-shifts";
 import { formatDateItalian } from "@/lib/domain/leave-request-shared";
@@ -72,21 +103,25 @@ type SalaAddOption = {
   source: "planning";
 };
 
+type PlanningAssignmentLocationOption = { id: string; name: string };
+
 function AddPlanningSalaSlotRow({
   planId,
   shiftDate,
   period,
   yearMonth,
   locations,
+  assignmentLocations,
 }: {
   planId: string;
   shiftDate: string;
   period: "mattina" | "pomeriggio";
   yearMonth: string;
   locations: SalaAddOption[];
+  assignmentLocations: PlanningAssignmentLocationOption[];
 }) {
   const [selectedOptionKey, setSelectedOptionKey] = useState("");
-  const [roomExtra, setRoomExtra] = useState("");
+  const [selectedAssignmentId, setSelectedAssignmentId] = useState("");
   const [slotState, formAction, isPending] = useActionState<AddPlanningSlotState | null, FormData>(
     addPlanningSlotAction,
     null,
@@ -98,7 +133,7 @@ function AddPlanningSalaSlotRow({
   useEffect(() => {
     if (slotState?.ok) {
       setSelectedOptionKey("");
-      setRoomExtra("");
+      setSelectedAssignmentId("");
     }
   }, [slotState?.ok]);
 
@@ -106,6 +141,15 @@ function AddPlanningSalaSlotRow({
     return (
       <p className="mt-2 text-[0.7rem] text-muted-foreground">
         Nessuna area sala attiva: configurale in Admin → Aree turni.
+      </p>
+    );
+  }
+
+  if (assignmentLocations.length === 0) {
+    return (
+      <p className="mt-2 text-[0.7rem] text-muted-foreground">
+        Nessuna sala o attività configurata in database. Esegui la migrazione che crea `assignment_locations` (seed
+        iniziale).
       </p>
     );
   }
@@ -119,6 +163,7 @@ function AddPlanningSalaSlotRow({
       <input type="hidden" name="period" value={period} />
       <input type="hidden" name="month" value={yearMonth} />
       <input type="hidden" name="clinicalAreaId" value={selectedAreaId} />
+      <input type="hidden" name="assignmentLocationId" value={selectedAssignmentId} />
       <div className="flex flex-wrap items-center gap-2">
         <label className="sr-only" htmlFor={`add-sala-${shiftDate}-${period}`}>
           Area sala
@@ -136,20 +181,28 @@ function AddPlanningSalaSlotRow({
             </option>
           ))}
         </select>
-        <input
-          type="text"
-          name="roomName"
-          value={roomExtra}
-          onChange={(e) => setRoomExtra(e.target.value)}
-          placeholder="Sala fisica (opz.)"
-          className="h-8 min-w-[8rem] max-w-full rounded-md border border-input bg-card px-2 text-xs"
-        />
+        <label className="sr-only" htmlFor={`add-sala-loc-${shiftDate}-${period}`}>
+          Sala o attività
+        </label>
+        <select
+          id={`add-sala-loc-${shiftDate}-${period}`}
+          className="h-8 min-w-[10rem] max-w-full rounded-md border border-input bg-card px-2 text-xs"
+          value={selectedAssignmentId}
+          onChange={(e) => setSelectedAssignmentId(e.target.value)}
+        >
+          <option value="">Sala / attività…</option>
+          {assignmentLocations.map((loc) => (
+            <option key={loc.id} value={loc.id}>
+              {loc.name}
+            </option>
+          ))}
+        </select>
         <Button
           type="submit"
           variant="outline"
           size="sm"
           className="h-8 shrink-0 text-xs"
-          disabled={!selectedOptionKey || isPending}
+          disabled={!selectedOptionKey || !selectedAssignmentId || isPending}
         >
           {isPending ? "Salvataggio..." : btnLabel}
         </Button>
@@ -266,6 +319,71 @@ function UpdatePlanningSalaClinicalAreaRow({
   );
 }
 
+function UpdatePlanningSalaAssignmentLocationRow({
+  shiftItemId,
+  planId,
+  yearMonth,
+  locations,
+  currentAssignmentLocationId,
+}: {
+  shiftItemId: string;
+  planId: string;
+  yearMonth: string;
+  locations: PlanningAssignmentLocationOption[];
+  currentAssignmentLocationId: string | null;
+}) {
+  const selectedInitial =
+    currentAssignmentLocationId && locations.some((a) => a.id === currentAssignmentLocationId)
+      ? currentAssignmentLocationId
+      : "";
+  const [selected, setSelected] = useState(selectedInitial);
+  const [locState, locAction, locPending] = useActionState<
+    UpdatePlanningSlotAssignmentLocationState | null,
+    FormData
+  >(updatePlanningSlotAssignmentLocationAction, null);
+
+  useEffect(() => {
+    const next =
+      currentAssignmentLocationId && locations.some((a) => a.id === currentAssignmentLocationId)
+        ? currentAssignmentLocationId
+        : "";
+    setSelected(next);
+  }, [currentAssignmentLocationId, locations]);
+
+  if (locations.length === 0) return null;
+
+  return (
+    <form action={locAction} className="mt-1 flex flex-wrap items-end gap-2 border-t border-dashed border-border/60 pt-2">
+      <input type="hidden" name="shiftItemId" value={shiftItemId} />
+      <input type="hidden" name="planId" value={planId} />
+      <input type="hidden" name="month" value={yearMonth} />
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <span className="text-[0.65rem] font-medium uppercase tracking-wide text-muted-foreground">Sala / attività</span>
+        <select
+          name="assignmentLocationId"
+          required
+          className="h-8 w-full min-w-[10rem] max-w-full rounded-md border border-input bg-card px-2 text-xs"
+          value={selected}
+          onChange={(e) => setSelected(e.target.value)}
+        >
+          <option value="">Scegli…</option>
+          {locations.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+      </div>
+      <Button type="submit" variant="outline" size="sm" className="h-8 shrink-0 text-xs" disabled={locPending || !selected}>
+        {locPending ? "…" : "Aggiorna sala"}
+      </Button>
+      {locState && !locState.ok ? (
+        <p className="w-full text-[0.65rem] text-rose-700">{locState.error}</p>
+      ) : null}
+    </form>
+  );
+}
+
 type AssigneeOption = AssignableShiftUserOption;
 
 function personLabel(people: AssigneeOption[], id: string | null) {
@@ -291,6 +409,13 @@ type TurniMonthViewProps = {
   changeLogs: PlanningChangeLogRow[];
   /** Opzioni sala merge planning+anagrafica per aggiunta slot. */
   salaLocationOptions?: SalaAddOption[];
+  /** Catalogo sale / attività (`assignment_locations`). */
+  assignmentLocationOptions?: PlanningAssignmentLocationOption[];
+  planningLeaves: PlanningLeaveRangeInput[];
+  planningBlocks: PlanningBlockInput[];
+  traineeCompetencyRows: TraineeLocationCompetencyInput[];
+  /** Specializzando con piano non pubblicato: niente griglia, solo messaggio + blocchi didattica se ammessi dallo stato. */
+  specializzandoPrepublishMode?: boolean;
 };
 
 function TurniItemRow({
@@ -305,6 +430,10 @@ function TurniItemRow({
   onAssign,
   deleteSalaPlanning,
   salaAreaSelectOptions,
+  assignmentLocationSelectOptions,
+  weeklyExcessUserIds,
+  planningConflictMessages,
+  traineeCompetencyRows,
 }: {
   item: ShiftItemRow;
   assigneeOptions: AssigneeOption[];
@@ -321,17 +450,48 @@ function TurniItemRow({
   deleteSalaPlanning?: { planId: string; yearMonth: string } | null;
   /** Aree attive per cambio area su slot sala (solo bozza). */
   salaAreaSelectOptions?: SalaAddOption[];
+  /** Sale attive per cambio assegnazione su slot sala (solo bozza). */
+  assignmentLocationSelectOptions?: PlanningAssignmentLocationOption[];
+  /** Assegnatario con almeno una settimana oltre il limite ore (sui dati del mese). */
+  weeklyExcessUserIds: Set<string>;
+  planningConflictMessages: string[];
+  traineeCompetencyRows: TraineeLocationCompetencyInput[];
 }) {
   const hasAssignee = Boolean(item.assigned_to);
+  const weeklyCapForAssignee = Boolean(item.assigned_to && weeklyExcessUserIds.has(item.assigned_to));
   const titleWhenReadOnly = assignReadOnlyTitle;
   const shiftAreaCode = item.kind === "sala" ? item.clinical_area?.code ?? null : null;
   const assigneeGroups = useMemo(
     () => groupAssigneesByClinicalAreaHint(assigneeOptions, shiftAreaCode),
     [assigneeOptions, shiftAreaCode],
   );
+  const shiftDay = item.shift_date.trim().slice(0, 10);
   const assigneeOptionLabel = (u: AssigneeOption) =>
     u.list_label.trim() || u.full_name?.trim() || u.email?.trim() || u.id;
+  const assigneeOptionElement = (u: AssigneeOption) => {
+    const label = assigneeOptionLabel(u);
+    const meta = competencySelectOptionMeta(traineeCompetencyRows, u.id, shiftDay, item);
+    return (
+      <option
+        key={u.id}
+        value={u.id}
+        title={meta.optionTitle ? `${label} — ${meta.optionTitle}` : undefined}
+      >
+        {label}
+        {meta.suffix}
+      </option>
+    );
+  };
   const assignedProfile = item.assigned_to ? assigneeOptions.find((u) => u.id === item.assigned_to) : undefined;
+  const assignmentCoherenceHint =
+    hasAssignee && item.assigned_to && (item.kind === "sala" || item.kind === "ambulatorio")
+      ? evaluateShiftAssignmentCompetencyHint({
+          traineeId: item.assigned_to,
+          shiftDateYmd: shiftDay,
+          item,
+          competencyRows: traineeCompetencyRows,
+        })
+      : null;
   const assigneeMatchesAreaHint =
     Boolean(shiftAreaCode) && assignedProfile?.assegnazione === shiftAreaCode;
 
@@ -351,15 +511,37 @@ function TurniItemRow({
           ? "border-rose-200/90 bg-rose-50/50 dark:border-rose-800/50 dark:bg-rose-950/20"
           : null,
         isSaving && "opacity-70",
+        weeklyCapForAssignee && !isConflictHighlight && "ring-1 ring-amber-400/55 dark:ring-amber-600/50",
       )}
     >
       <div className="min-w-0 space-y-0.5">
-        <div className="text-foreground">{item.label}</div>
+        <div
+          className={cn(
+            "text-foreground",
+            item.kind === "reperibilita" && "font-semibold text-violet-900 dark:text-violet-200",
+          )}
+        >
+          {item.kind === "reperibilita" ? (
+            <>Reperibilità · {shiftItemPeriodLabelItalian(item.period)}</>
+          ) : item.kind === "ambulatorio" ? (
+            <>
+              {shiftItemPeriodLabelItalian(item.period)} ·{" "}
+              <span className="font-medium">{item.assignment_location?.name ?? item.label}</span>
+            </>
+          ) : (
+            <>
+              {shiftItemPeriodLabelItalian(item.period)} ·{" "}
+              <span className="font-medium">
+                {item.assignment_location?.name ?? item.room_name ?? "—"}
+              </span>
+            </>
+          )}
+        </div>
         {item.kind === "sala" && (item.clinical_area || item.room_name || item.specialty) ? (
           <p className="text-xs text-muted-foreground">
             {item.clinical_area ? (
               <>
-                <span className="font-medium text-foreground/90">{item.clinical_area.name}</span>
+                <span className="font-medium text-foreground/90">Area tipo: {item.clinical_area.name}</span>
                 <span className="text-muted-foreground"> ({item.clinical_area.code})</span>
                 {!item.clinical_area.is_active ? (
                   <span className="ml-1 rounded bg-muted px-1 text-[0.65rem] uppercase tracking-wide">storico</span>
@@ -368,12 +550,9 @@ function TurniItemRow({
             ) : (
               <>
                 {item.specialty}
-                {item.room_name ? <span className="ml-2">· Sala {item.room_name}</span> : null}
+                {item.room_name ? <span className="ml-2">· {item.room_name}</span> : null}
               </>
             )}
-            {item.clinical_area && item.room_name ? (
-              <span className="mt-0.5 block sm:mt-0 sm:ml-2 sm:inline">Sala fisica: {item.room_name}</span>
-            ) : null}
           </p>
         ) : null}
         <p className="text-[0.7rem] uppercase text-muted-foreground/90">
@@ -383,6 +562,49 @@ function TurniItemRow({
           <p className="text-[0.7rem] text-rose-800 dark:text-rose-200/90" title="Vincolo stesso giorno / stessa persona">
             Già assegnato in questo giorno
           </p>
+        ) : null}
+        {weeklyCapForAssignee ? (
+          <p className="text-[0.65rem] text-amber-950 dark:text-amber-100/90">
+            Supera {WEEKLY_ASSISTENTIAL_CAP_HOURS}h assistenziali in almeno una settimana (lun–dom) contando solo i
+            turni di questo mese: verifica le settimane a cavallo tra due mesi.
+          </p>
+        ) : null}
+        {planningConflictMessages.length > 0 ? (
+          <ul className="space-y-0.5 text-[0.65rem] text-orange-900 dark:text-orange-100/90">
+            {planningConflictMessages.map((msg, idx) => (
+              <li key={`${msg}-${idx}`}>{msg}</li>
+            ))}
+          </ul>
+        ) : null}
+        {assignmentCoherenceHint && assignmentCoherenceHint.message ? (
+          <div
+            className={cn(
+              "rounded-md border px-2 py-1.5 text-[0.65rem]",
+              assignmentCoherenceHint.severity === "warning" &&
+                "border-amber-300/80 bg-amber-50/90 text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/25 dark:text-amber-50",
+              assignmentCoherenceHint.severity === "positive" &&
+                "border-emerald-300/80 bg-emerald-50/90 text-emerald-950 dark:border-emerald-800/50 dark:bg-emerald-950/25 dark:text-emerald-50",
+              assignmentCoherenceHint.severity === "neutral" &&
+                "border-border bg-muted/40 text-muted-foreground",
+            )}
+          >
+            <p className="font-medium text-foreground/90">Coerenza assegnazione</p>
+            {assignmentCoherenceHint.shortLabel ? (
+              <p className="mt-0.5 text-[0.6rem] uppercase tracking-wide text-foreground/80">
+                {assignmentCoherenceHint.shortLabel}
+              </p>
+            ) : null}
+            <p className="mt-0.5">{assignmentCoherenceHint.message}</p>
+          </div>
+        ) : null}
+        {item.kind === "sala" && assignmentLocationSelectOptions && assignmentLocationSelectOptions.length > 0 && deleteSalaPlanning ? (
+          <UpdatePlanningSalaAssignmentLocationRow
+            shiftItemId={item.id}
+            planId={deleteSalaPlanning.planId}
+            yearMonth={deleteSalaPlanning.yearMonth}
+            locations={assignmentLocationSelectOptions}
+            currentAssignmentLocationId={item.assignment_location_id}
+          />
         ) : null}
         {item.kind === "sala" && salaAreaSelectOptions && salaAreaSelectOptions.length > 0 && deleteSalaPlanning ? (
           <UpdatePlanningSalaClinicalAreaRow
@@ -422,28 +644,16 @@ function TurniItemRow({
             {assigneeGroups.useGroupedSelect ? (
               <>
                 <optgroup label="Suggeriti · area formativa come questo turno">
-                  {assigneeGroups.suggested.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {assigneeOptionLabel(u)}
-                    </option>
-                  ))}
+                  {assigneeGroups.suggested.map((u) => assigneeOptionElement(u))}
                 </optgroup>
                 {assigneeGroups.others.length > 0 ? (
                   <optgroup label="Altri specializzandi">
-                    {assigneeGroups.others.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {assigneeOptionLabel(u)}
-                      </option>
-                    ))}
+                    {assigneeGroups.others.map((u) => assigneeOptionElement(u))}
                   </optgroup>
                 ) : null}
               </>
             ) : (
-              assigneeGroups.others.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {assigneeOptionLabel(u)}
-                </option>
-              ))
+              assigneeGroups.others.map((u) => assigneeOptionElement(u))
             )}
           </select>
         ) : (
@@ -459,6 +669,22 @@ function TurniItemRow({
             {assigneeMatchesAreaHint ? (
               <span className="ml-1 text-xs text-emerald-700 dark:text-emerald-400" aria-hidden>
                 ✓
+              </span>
+            ) : null}
+            {assignmentCoherenceHint && assignmentCoherenceHint.shortLabel ? (
+              <span
+                className={cn(
+                  "ml-1.5 rounded px-1 text-[0.6rem] font-medium",
+                  assignmentCoherenceHint.severity === "warning" &&
+                    "bg-amber-100 text-amber-950 dark:bg-amber-950/40 dark:text-amber-50",
+                  assignmentCoherenceHint.severity === "positive" &&
+                    "bg-emerald-100 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-100",
+                  assignmentCoherenceHint.severity === "neutral" &&
+                    "bg-muted text-muted-foreground",
+                )}
+                title={assignmentCoherenceHint.message}
+              >
+                {assignmentCoherenceHint.shortLabel}
               </span>
             ) : null}
           </span>
@@ -491,6 +717,10 @@ function BlockSection({
   addSalaSlot,
   deleteSalaPlanning,
   salaAreaSelectOptions,
+  assignmentLocationSelectOptions,
+  weeklyExcessUserIds,
+  shiftConflictMessages,
+  traineeCompetencyRows,
 }: {
   title: string;
   timeHint?: string;
@@ -505,15 +735,20 @@ function BlockSection({
   blockId: string;
   rowErrors: Record<string, string>;
   conflictItemIds: string[];
+  weeklyExcessUserIds: Set<string>;
+  shiftConflictMessages: Record<string, string[]>;
   addSalaSlot?: {
     planId: string;
     shiftDate: string;
     yearMonth: string;
     period: "mattina" | "pomeriggio";
     locations: SalaAddOption[];
+    assignmentLocations: PlanningAssignmentLocationOption[];
   } | null;
   deleteSalaPlanning?: { planId: string; yearMonth: string } | null;
   salaAreaSelectOptions?: SalaAddOption[];
+  assignmentLocationSelectOptions?: PlanningAssignmentLocationOption[];
+  traineeCompetencyRows: TraineeLocationCompetencyInput[];
 }) {
   const conflictSet = useMemo(() => new Set(conflictItemIds), [conflictItemIds]);
   const h = useId();
@@ -553,6 +788,10 @@ function BlockSection({
               onAssign={(userId) => onAssignItem(item.id, userId)}
               deleteSalaPlanning={deleteSalaPlanning}
               salaAreaSelectOptions={salaAreaSelectOptions}
+              assignmentLocationSelectOptions={assignmentLocationSelectOptions}
+              weeklyExcessUserIds={weeklyExcessUserIds}
+              planningConflictMessages={shiftConflictMessages[item.id] ?? []}
+              traineeCompetencyRows={traineeCompetencyRows}
             />
           ))}
         </div>
@@ -564,6 +803,7 @@ function BlockSection({
           period={addSalaSlot.period}
           yearMonth={addSalaSlot.yearMonth}
           locations={addSalaSlot.locations}
+          assignmentLocations={addSalaSlot.assignmentLocations}
         />
       ) : null}
     </div>
@@ -584,6 +824,10 @@ function DayCard({
   salaPlanningAdd,
   salaDeletePlanning,
   salaAreaSelectOptions,
+  assignmentLocationSelectOptions,
+  weeklyExcessUserIds,
+  shiftConflictMessages,
+  traineeCompetencyRows,
 }: {
   date: string;
   items: ShiftItemRow[];
@@ -595,10 +839,19 @@ function DayCard({
   onAssignItem: (itemId: string, userId: string | null) => void;
   rowErrors: Record<string, string>;
   conflictItemIds: string[];
+  weeklyExcessUserIds: Set<string>;
+  shiftConflictMessages: Record<string, string[]>;
   /** Aggiungi slot sala (admin): mattina/pomeriggio dall’anagrafica sale. */
-  salaPlanningAdd?: { planId: string; yearMonth: string; locations: SalaAddOption[] } | null;
+  salaPlanningAdd?: {
+    planId: string;
+    yearMonth: string;
+    locations: SalaAddOption[];
+    assignmentLocations: PlanningAssignmentLocationOption[];
+  } | null;
   salaDeletePlanning?: { planId: string; yearMonth: string } | null;
   salaAreaSelectOptions?: SalaAddOption[];
+  assignmentLocationSelectOptions?: PlanningAssignmentLocationOption[];
+  traineeCompetencyRows: TraineeLocationCompetencyInput[];
 }) {
   const g = splitByBlock(items);
   const addMattina = salaPlanningAdd
@@ -608,6 +861,7 @@ function DayCard({
         shiftDate: date,
         period: "mattina" as const,
         locations: salaPlanningAdd.locations,
+        assignmentLocations: salaPlanningAdd.assignmentLocations,
       }
     : null;
   const addPomeriggio = salaPlanningAdd
@@ -617,12 +871,16 @@ function DayCard({
         shiftDate: date,
         period: "pomeriggio" as const,
         locations: salaPlanningAdd.locations,
+        assignmentLocations: salaPlanningAdd.assignmentLocations,
       }
     : null;
 
   return (
-    <Card title={formatDateItalian(date)} className="p-0">
-      <div className="mt-0 space-y-4">
+    <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+      <header className="border-b border-border/80 bg-card/95 px-4 py-3 sm:sticky sm:top-16 sm:z-[15] sm:shadow-sm sm:backdrop-blur-md">
+        <h2 className="text-base font-semibold text-foreground">{formatDateItalian(date)}</h2>
+      </header>
+      <div className="space-y-4 px-4 pb-5 pt-4">
         <BlockSection
           title="Mattina"
           timeHint="08–14"
@@ -637,9 +895,13 @@ function DayCard({
           blockId={`${date}-mattina-empty`}
           rowErrors={rowErrors}
           conflictItemIds={conflictItemIds}
+          weeklyExcessUserIds={weeklyExcessUserIds}
+          shiftConflictMessages={shiftConflictMessages}
           addSalaSlot={addMattina}
           deleteSalaPlanning={salaDeletePlanning}
           salaAreaSelectOptions={salaAreaSelectOptions}
+          assignmentLocationSelectOptions={assignmentLocationSelectOptions}
+          traineeCompetencyRows={traineeCompetencyRows}
         />
         <BlockSection
           title="Pomeriggio"
@@ -655,9 +917,13 @@ function DayCard({
           blockId={`${date}-pom-empty`}
           rowErrors={rowErrors}
           conflictItemIds={conflictItemIds}
+          weeklyExcessUserIds={weeklyExcessUserIds}
+          shiftConflictMessages={shiftConflictMessages}
           addSalaSlot={addPomeriggio}
           deleteSalaPlanning={salaDeletePlanning}
           salaAreaSelectOptions={salaAreaSelectOptions}
+          assignmentLocationSelectOptions={assignmentLocationSelectOptions}
+          traineeCompetencyRows={traineeCompetencyRows}
         />
         <BlockSection
           title="Ambulatorio"
@@ -673,7 +939,11 @@ function DayCard({
           blockId={`${date}-amb-empty`}
           rowErrors={rowErrors}
           conflictItemIds={conflictItemIds}
+          weeklyExcessUserIds={weeklyExcessUserIds}
+          shiftConflictMessages={shiftConflictMessages}
           deleteSalaPlanning={null}
+          assignmentLocationSelectOptions={assignmentLocationSelectOptions}
+          traineeCompetencyRows={traineeCompetencyRows}
         />
         <BlockSection
           title="Reperibilità"
@@ -688,10 +958,14 @@ function DayCard({
           blockId={`${date}-rep-empty`}
           rowErrors={rowErrors}
           conflictItemIds={conflictItemIds}
+          weeklyExcessUserIds={weeklyExcessUserIds}
+          shiftConflictMessages={shiftConflictMessages}
           deleteSalaPlanning={null}
+          assignmentLocationSelectOptions={assignmentLocationSelectOptions}
+          traineeCompetencyRows={traineeCompetencyRows}
         />
       </div>
-    </Card>
+    </section>
   );
 }
 
@@ -708,6 +982,130 @@ function planStatusChipClass(status: MonthlyShiftPlanRow["status"]) {
   }
 }
 
+function AddTraineePlanningBlockCard({
+  yearMonth,
+  planStatus,
+  currentUserId,
+  currentUserRole,
+  assigneeOptions,
+  monthStartStr,
+  monthEndStr,
+}: {
+  yearMonth: string;
+  planStatus: MonthlyShiftPlanRow["status"];
+  currentUserId: string;
+  currentUserRole: "specializzando" | "tutor" | "admin";
+  assigneeOptions: AssigneeOption[];
+  monthStartStr: string;
+  monthEndStr: string;
+}) {
+  const [blockState, blockAction, blockPending] = useActionState<AddTraineePlanningBlockState | null, FormData>(
+    addTraineePlanningBlockAction,
+    null,
+  );
+  const [selectedUser, setSelectedUser] = useState(currentUserRole === "specializzando" ? currentUserId : "");
+
+  useEffect(() => {
+    if (blockState?.ok) {
+      setSelectedUser(currentUserRole === "specializzando" ? currentUserId : "");
+    }
+  }, [blockState?.ok, currentUserId, currentUserRole]);
+
+  if (planStatus === "approved") return null;
+  if (currentUserRole !== "admin" && currentUserRole !== "specializzando") return null;
+
+  return (
+    <Card
+      title="Blocchi didattica / congresso / desiderata (fascia)"
+      description="Registra indisponibilità a mezza giornata o giornata intera. Le ferie e le desiderate su più giorni restano in Ferie; qui si integrano le lezioni pomeridiane, congressi, ecc."
+    >
+      <form action={blockAction} className="flex flex-col gap-2 text-sm">
+        <input type="hidden" name="month" value={yearMonth} />
+        {currentUserRole === "admin" ? (
+          <div className="flex flex-col gap-1">
+            <label htmlFor="tpb-user" className="text-xs font-medium text-muted-foreground">
+              Specializzando
+            </label>
+            <select
+              id="tpb-user"
+              name="userId"
+              required
+              className="h-9 rounded-md border border-input bg-card px-2"
+              value={selectedUser}
+              onChange={(e) => setSelectedUser(e.target.value)}
+            >
+              <option value="">Scegli…</option>
+              {assigneeOptions.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.list_label.trim() || u.full_name?.trim() || u.email?.trim() || u.id}
+                </option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <input type="hidden" name="userId" value={currentUserId} />
+        )}
+        <div className="flex flex-col gap-1">
+          <label htmlFor="tpb-date" className="text-xs font-medium text-muted-foreground">
+            Data
+          </label>
+          <input
+            id="tpb-date"
+            type="date"
+            name="blockDate"
+            required
+            min={monthStartStr}
+            max={monthEndStr}
+            className="h-9 rounded-md border border-input bg-card px-2"
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <div className="flex min-w-[8rem] flex-1 flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground">Fascia</span>
+            <select name="period" required className="h-9 rounded-md border border-input bg-card px-2">
+              <option value="morning">Mattina</option>
+              <option value="afternoon">Pomeriggio</option>
+              <option value="full_day">Tutto il giorno</option>
+            </select>
+          </div>
+          <div className="flex min-w-[8rem] flex-1 flex-col gap-1">
+            <span className="text-xs font-medium text-muted-foreground">Tipo</span>
+            <select name="kind" required className="h-9 rounded-md border border-input bg-card px-2">
+              <option value="didattica">Didattica / lezione</option>
+              <option value="congresso">Congresso</option>
+              <option value="desiderata">Desiderata (fascia)</option>
+              <option value="altro">Altro</option>
+            </select>
+          </div>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="tpb-title" className="text-xs font-medium text-muted-foreground">
+            Titolo
+          </label>
+          <input
+            id="tpb-title"
+            name="title"
+            required
+            placeholder="es. Lezione ECM, Congresso SIAARTI…"
+            className="h-9 rounded-md border border-input bg-card px-2"
+          />
+        </div>
+        <Button
+          type="submit"
+          variant="secondary"
+          size="sm"
+          className="w-fit"
+          disabled={blockPending || (currentUserRole === "admin" && !selectedUser)}
+        >
+          {blockPending ? "Salvataggio…" : "Registra blocco"}
+        </Button>
+        {blockState?.ok ? <p className="text-xs text-emerald-700">Blocco registrato.</p> : null}
+        {blockState && !blockState.ok ? <p className="text-xs text-rose-700">{blockState.error}</p> : null}
+      </form>
+    </Card>
+  );
+}
+
 export function TurniMonthView({
   yearMonth,
   plan,
@@ -717,6 +1115,11 @@ export function TurniMonthView({
   assigneeOptions,
   changeLogs,
   salaLocationOptions,
+  assignmentLocationOptions,
+  planningLeaves,
+  planningBlocks,
+  traineeCompetencyRows,
+  specializzandoPrepublishMode = false,
 }: TurniMonthViewProps) {
   const router = useRouter();
   const [assignError, setAssignError] = useState<string | null>(null);
@@ -748,6 +1151,15 @@ export function TurniMonthView({
     );
   }, [salaLocationOptions]);
 
+  const assignmentLocationsForPlanning = useMemo(() => {
+    const raw = assignmentLocationOptions;
+    if (raw == null || !Array.isArray(raw)) return [] as PlanningAssignmentLocationOption[];
+    return raw.filter(
+      (r): r is PlanningAssignmentLocationOption =>
+        r != null && typeof r.id === "string" && r.id.length > 0 && typeof r.name === "string" && r.name.length > 0,
+    );
+  }, [assignmentLocationOptions]);
+
   const nameById = useCallback(
     (id: string) => {
       const o = assigneeOptions.find((u) => u.id === id);
@@ -757,13 +1169,92 @@ export function TurniMonthView({
   );
   const loadLines = useMemo(() => buildUserLoadLines(items, nameById), [items, nameById]);
   const loadWarnings = useMemo(() => computeLoadWarnings(loadLines), [loadLines]);
+  const weeklyLoads = useMemo(() => buildWeeklyAssistentialLoads(items, nameById), [items, nameById]);
+  const weeklyExcessUserIds = useMemo(() => userIdsWithAnyWeeklyAssistentialExcess(weeklyLoads), [weeklyLoads]);
+  const weeklyExceededRows = useMemo(() => weeklyLoads.filter((w) => w.exceeded), [weeklyLoads]);
+
+  const monthAnchor = useMemo(() => parse(yearMonth, "yyyy-MM", new Date()), [yearMonth]);
+  const monthStartStr = useMemo(() => format(startOfMonth(monthAnchor), "yyyy-MM-dd"), [monthAnchor]);
+  const monthEndStr = useMemo(() => format(endOfMonth(monthAnchor), "yyyy-MM-dd"), [monthAnchor]);
+
+  const { planningAssistentialConflicts, shiftConflictMessages } = useMemo(() => {
+    const rows = buildPlanningAssistentialConflicts({
+      items,
+      leaves: planningLeaves,
+      blocks: planningBlocks,
+      nameById,
+    });
+    const msgs: Record<string, string[]> = {};
+    for (const r of rows) {
+      if (!msgs[r.shiftItemId]) msgs[r.shiftItemId] = [];
+      const list = msgs[r.shiftItemId]!;
+      if (!list.includes(r.shortMessage)) list.push(r.shortMessage);
+    }
+    return { planningAssistentialConflicts: rows, shiftConflictMessages: msgs };
+  }, [items, planningLeaves, planningBlocks, nameById]);
+
+  const weeklyTraineeSummaries = useMemo(() => {
+    const userIds = collectTraineeWeeklySummaryUserIds({
+      items,
+      leaves: planningLeaves,
+      blocks: planningBlocks,
+      preferredOrder: assigneeOptions.map((o) => o.id),
+    });
+    if (userIds.length === 0) return [];
+    return buildTraineeWeeklyPlanningSummaries({
+      items,
+      leaves: planningLeaves,
+      blocks: planningBlocks,
+      conflicts: planningAssistentialConflicts,
+      nameById,
+      monthStart: monthStartStr,
+      monthEnd: monthEndStr,
+      userIds,
+    });
+  }, [
+    items,
+    planningLeaves,
+    planningBlocks,
+    planningAssistentialConflicts,
+    nameById,
+    monthStartStr,
+    monthEndStr,
+    assigneeOptions,
+  ]);
+
+  const monthlyTraineeStatistics = useMemo(() => {
+    const assigneeIdsOrdered = assigneeOptions.map((o) => o.id);
+    const userIds = collectTraineeIdsWithAssignmentsInMonth(
+      items,
+      monthStartStr,
+      monthEndStr,
+      assigneeIdsOrdered,
+    );
+    return buildMonthlyTraineeShiftStatistics({
+      items,
+      monthStart: monthStartStr,
+      monthEnd: monthEndStr,
+      conflicts: planningAssistentialConflicts,
+      weeklyLoads,
+      userIds,
+      nameById,
+    });
+  }, [
+    items,
+    monthStartStr,
+    monthEndStr,
+    planningAssistentialConflicts,
+    weeklyLoads,
+    assigneeOptions,
+    nameById,
+  ]);
 
   const assignReadOnlyTitle = useMemo(() => {
     if (planIsApproved) {
       return "Mese approvato: le assegnazioni non sono modificabili";
     }
     if (currentUserRole === "tutor") {
-      return "Sola consultazione (tutor): le assegnazioni le gestiscono specializzando o amministratori in base al piano";
+      return "Sola consultazione (tutor): le assegnazioni le gestiscono gli amministratori in base allo stato del piano";
     }
     if (plan.status === "submitted" && currentUserRole === "specializzando") {
       return "Piano inviato: solo l’amministratore può modificare le assegnazioni";
@@ -827,19 +1318,90 @@ export function TurniMonthView({
 
   const salaPlanningAdd = useMemo(() => {
     if (!isAdmin || planIsApproved) return null;
-    return { planId: plan.id, yearMonth, locations: [...salaLocationsForPlanning] };
-  }, [isAdmin, planIsApproved, plan.id, yearMonth, salaLocationsForPlanning]);
+    return {
+      planId: plan.id,
+      yearMonth,
+      locations: [...salaLocationsForPlanning],
+      assignmentLocations: [...assignmentLocationsForPlanning],
+    };
+  }, [isAdmin, planIsApproved, plan.id, yearMonth, salaLocationsForPlanning, assignmentLocationsForPlanning]);
 
   const salaDeletePlanning = useMemo(() => {
     if (!isAdmin || plan.status !== "draft") return null;
     return { planId: plan.id, yearMonth };
   }, [isAdmin, plan.id, plan.status, yearMonth]);
 
+  if (specializzandoPrepublishMode && currentUserRole === "specializzando") {
+    return (
+      <div className="space-y-6">
+        <div
+          className={cn(
+            "rounded-2xl border border-border bg-card px-4 py-3",
+            plan.status === "draft" && "ring-1 ring-slate-300/40 dark:ring-slate-600/40",
+            plan.status === "submitted" && "ring-1 ring-amber-300/50 dark:ring-amber-800/50",
+            plan.status === "approved" && "ring-1 ring-emerald-300/50 dark:ring-emerald-800/50",
+          )}
+        >
+          <div className="space-y-1">
+            <p className="text-sm font-medium capitalize text-foreground">{monthLabel}</p>
+            <p className="text-xs text-muted-foreground">Stato piano (sintesi)</p>
+            <span
+              className={cn("inline-block rounded-full px-2.5 py-0.5 text-xs font-medium", planStatusChipClass(plan.status))}
+            >
+              {monthlyShiftPlanStatusLabelItalian(plan.status)}
+            </span>
+          </div>
+        </div>
+
+        <div
+          role="status"
+          className="rounded-2xl border border-sky-200/90 bg-sky-50/90 px-4 py-3 text-sm text-sky-950 dark:border-sky-900/50 dark:bg-sky-950/35 dark:text-sky-50"
+        >
+          <p className="font-medium">Planning del mese in preparazione</p>
+          <p className="mt-1 text-xs text-sky-900/90 dark:text-sky-100/85">
+            La griglia turni completa sarà visibile solo dopo la pubblicazione ufficiale al reparto. Puoi comunque
+            registrare indisponibilità a fascia (sotto) e gestire ferie su più giorni dalla sezione dedicata.
+          </p>
+          <p className="mt-2 text-xs">
+            <Link href="/ferie" className="font-medium text-primary underline-offset-2 hover:underline">
+              Vai a Ferie e richieste
+            </Link>
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/turni?month=${prevM}`}
+            className="inline-flex h-9 items-center justify-center rounded-lg border border-border bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+          >
+            ← Mese precedente
+          </Link>
+          <Link
+            href={`/turni?month=${nextM}`}
+            className="inline-flex h-9 items-center justify-center rounded-lg border border-border bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent"
+          >
+            Mese successivo →
+          </Link>
+        </div>
+
+        <AddTraineePlanningBlockCard
+          yearMonth={yearMonth}
+          planStatus={plan.status}
+          currentUserId={currentUserId}
+          currentUserRole={currentUserRole}
+          assigneeOptions={assigneeOptions}
+          monthStartStr={monthStartStr}
+          monthEndStr={monthEndStr}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div
         className={cn(
-          "flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3",
+          "rounded-2xl border border-border bg-card px-4 py-3",
           plan.status === "draft" && "ring-1 ring-slate-300/40 dark:ring-slate-600/40",
           plan.status === "submitted" && "ring-1 ring-amber-300/50 dark:ring-amber-800/50",
           plan.status === "approved" && "ring-1 ring-emerald-300/50 dark:ring-emerald-800/50",
@@ -854,67 +1416,125 @@ export function TurniMonthView({
             {monthlyShiftPlanStatusLabelItalian(plan.status)}
           </span>
         </div>
-        <div className="flex items-center gap-2">
-          <Link
-            href={`/turni?month=${prevM}`}
-            className="inline-flex h-9 items-center justify-center rounded-lg border border-border bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-          >
-            Mese prec.
-          </Link>
-          <Link
-            href={`/turni?month=${nextM}`}
-            className="inline-flex h-9 items-center justify-center rounded-lg border border-border bg-card px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent"
-          >
-            Mese succ.
-          </Link>
-        </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-medium text-foreground">Mostra</span>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            type="button"
-            variant={viewFilter.kind === "all" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setViewFilter({ kind: "all" })}
+      {plan.status === "approved" ? (
+        isMonthlyShiftsPublished(plan) ? (
+          <div
+            role="status"
+            className="rounded-2xl border border-emerald-200/90 bg-emerald-50/90 px-4 py-3 text-sm text-emerald-950 dark:border-emerald-900/45 dark:bg-emerald-950/35 dark:text-emerald-50"
           >
-            Tutti
-          </Button>
-          <Button
-            type="button"
-            variant={viewFilter.kind === "me" ? "default" : "outline"}
-            size="sm"
-            onClick={() => setViewFilter({ kind: "me" })}
-            title="Solo turni a te assegnati"
-          >
-            A me
-          </Button>
-          <div className="flex items-center gap-2">
-            <label htmlFor="turni-filter-user" className="sr-only">
-              Filtra per collega
-            </label>
-            <select
-              id="turni-filter-user"
-              className="h-9 min-w-[12rem] max-w-full rounded-md border border-input bg-card px-2 text-sm"
-              value={userFilterValue}
-              onChange={(e) => {
-                const v = e.target.value;
-                if (!v) {
-                  setViewFilter({ kind: "all" });
-                } else {
-                  setViewFilter({ kind: "user", id: v });
-                }
-              }}
-            >
-              <option value="">Solo assegnato a…</option>
-              {assigneeOptions.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.list_label.trim() || u.full_name?.trim() || u.email?.trim() || u.id}
-                </option>
-              ))}
-            </select>
+            <p className="font-medium capitalize">Turni pubblicati per {monthLabel}</p>
+            {plan.published_at ? (
+              <p className="mt-1 text-xs text-emerald-900/90 dark:text-emerald-100/85">
+                Data pubblicazione: {format(parseISO(plan.published_at), "dd/MM/yyyy HH:mm", { locale: it })}.
+              </p>
+            ) : null}
           </div>
+        ) : isAdmin ? (
+          <div
+            role="status"
+            className="rounded-2xl border border-amber-200/90 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-50"
+          >
+            <p className="font-medium">Piano approvato ma turni non ancora pubblicati al reparto</p>
+            <p className="mt-1 text-xs text-amber-900/90 dark:text-amber-100/85">
+              Usa «Pubblica turni» nelle azioni in fondo alla pagina per l’ufficializzazione ai specializzandi.
+            </p>
+          </div>
+        ) : (
+          <div
+            role="status"
+            className="rounded-2xl border border-slate-200/90 bg-slate-50/90 px-4 py-3 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-950/40 dark:text-slate-100"
+          >
+            <p className="font-medium">Piano in attesa di pubblicazione ufficiale</p>
+            <p className="mt-1 text-xs text-slate-700 dark:text-slate-300/90">
+              Il coordinamento ha approvato il mese; i turni saranno considerati pubblicati al reparto dopo l’azione
+              dedicata dall’amministrazione.
+            </p>
+          </div>
+        )
+      ) : null}
+
+      <div
+        className={cn(
+          "sticky top-0 z-20 rounded-xl border border-border bg-card/95 py-2.5 pl-3 pr-3 shadow-sm backdrop-blur-md supports-[backdrop-filter]:bg-card/85",
+        )}
+      >
+        <div className="flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+          <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-2 sm:gap-x-3">
+            <div className="flex shrink-0 items-center gap-1">
+              <Link
+                href={`/turni?month=${prevM}`}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-background text-sm font-medium text-foreground transition-colors hover:bg-accent"
+                aria-label="Mese precedente"
+                title="Mese precedente"
+              >
+                ←
+              </Link>
+              <span className="hidden min-w-0 max-w-[11rem] truncate text-sm font-semibold capitalize text-foreground sm:inline sm:max-w-[14rem] md:max-w-none">
+                {monthLabel}
+              </span>
+              <Link
+                href={`/turni?month=${nextM}`}
+                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-background text-sm font-medium text-foreground transition-colors hover:bg-accent"
+                aria-label="Mese successivo"
+                title="Mese successivo"
+              >
+                →
+              </Link>
+            </div>
+            <div className="hidden h-5 w-px shrink-0 bg-border sm:block" aria-hidden />
+            <span className="shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">Mostra</span>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                variant={viewFilter.kind === "all" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setViewFilter({ kind: "all" })}
+              >
+                Tutti
+              </Button>
+              <Button
+                type="button"
+                variant={viewFilter.kind === "me" ? "default" : "outline"}
+                size="sm"
+                className="max-w-full"
+                onClick={() => setViewFilter({ kind: "me" })}
+                title="Mostra solo le righe di planning assegnate a te"
+              >
+                <span className="sm:hidden">Il mio planning</span>
+                <span className="hidden sm:inline">Solo il mio planning</span>
+              </Button>
+              <div className="flex min-w-0 items-center gap-2">
+                <label htmlFor="turni-filter-user" className="sr-only">
+                  Filtra per collega
+                </label>
+                <select
+                  id="turni-filter-user"
+                  className="h-9 min-w-0 max-w-[min(100vw-8rem,18rem)] flex-1 rounded-md border border-input bg-card px-2 text-sm sm:min-w-[12rem] sm:max-w-none sm:flex-none"
+                  value={userFilterValue}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (!v) {
+                      setViewFilter({ kind: "all" });
+                    } else {
+                      setViewFilter({ kind: "user", id: v });
+                    }
+                  }}
+                >
+                  <option value="">Collega…</option>
+                  {assigneeOptions.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.list_label.trim() || u.full_name?.trim() || u.email?.trim() || u.id}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </div>
+          <p className="shrink-0 text-xs tabular-nums text-muted-foreground sm:text-right" aria-live="polite">
+            {filteredItems.length}/{items.length} in vista
+          </p>
         </div>
       </div>
 
@@ -926,7 +1546,10 @@ export function TurniMonthView({
 
       {loadLines.length > 0 ? (
         <div className="space-y-2 rounded-2xl border border-border bg-card px-4 py-3 text-sm">
-          <p className="font-medium text-foreground">Carico per assegnatario</p>
+          <p className="font-medium text-foreground">Carico assistenziale per assegnatario</p>
+          <p className="text-xs text-muted-foreground">
+            Conteggio su sala e ambulatorio; la reperibilità è indicata a parte e non somma ai turni qui sotto.
+          </p>
           <ul className="max-h-56 space-y-1.5 overflow-y-auto pr-1 text-foreground sm:columns-2 sm:gap-4">
             {loadLines.map((l) => {
               const parts = [
@@ -941,7 +1564,7 @@ export function TurniMonthView({
                 <li key={l.userId} className="break-inside-avoid">
                   <span className="font-medium text-foreground">{l.displayName}</span>
                   <span className="text-muted-foreground"> — </span>
-                  <span className="tabular-nums">{l.total} turni</span>
+                  <span className="tabular-nums">{l.total} turni assistenziali</span>
                   {parts.length > 0 ? <span className="text-muted-foreground"> (</span> : null}
                   {parts.length > 0 ? <span>{parts.join(", ")}</span> : null}
                   {parts.length > 0 ? <span className="text-muted-foreground">)</span> : null}
@@ -951,6 +1574,205 @@ export function TurniMonthView({
           </ul>
         </div>
       ) : null}
+
+      {weeklyLoads.length > 0 ? (
+        <div className="space-y-2 rounded-2xl border border-border bg-card px-4 py-3 text-sm">
+          {weeklyExceededRows.length > 0 ? (
+            <div
+              role="alert"
+              className="rounded-lg border border-rose-300/90 bg-rose-50 px-3 py-2 text-sm text-rose-950 dark:border-rose-800/60 dark:bg-rose-950/40 dark:text-rose-50"
+            >
+              <p className="font-medium">Superamento {WEEKLY_ASSISTENTIAL_CAP_HOURS}h assistenziali in settimana</p>
+              <ul className="mt-1.5 list-inside list-disc space-y-0.5">
+                {weeklyExceededRows.map((w) => (
+                  <li key={`${w.userId}-${w.weekStart}`}>
+                    <span className="font-medium">{w.displayName}</span>
+                    <span className="text-muted-foreground"> — </span>
+                    {formatWeekRangeItalian(w.weekStart, w.weekEnd)}:{" "}
+                    <span className="tabular-nums font-medium">{w.assistentialHours}h</span> su mezze giornate
+                    assistenziali (reper esclusa).
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          <p className="font-medium text-foreground">Ore assistenziali per settimana (lun–dom)</p>
+          <p className="text-xs text-muted-foreground">
+            Ogni mezza giornata sala o ambulatorio vale 6h (giornata intera = 12h). Limite {WEEKLY_ASSISTENTIAL_CAP_HOURS}
+            h: le reperibilità non contano. Se la settimana esce dal mese, il totale considera solo i turni caricati in
+            questa vista.
+          </p>
+          <div className="max-h-64 overflow-auto rounded-md border border-border/80">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-card text-muted-foreground">
+                <tr className="border-b border-border">
+                  <th className="px-2 py-1.5 text-left font-medium">Settimana</th>
+                  <th className="px-2 py-1.5 text-left font-medium">Collega</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Mezze gg.</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Ore</th>
+                  <th className="px-2 py-1.5 text-right font-medium">Reper</th>
+                  <th className="px-2 py-1.5 text-left font-medium">Stato</th>
+                </tr>
+              </thead>
+              <tbody>
+                {weeklyLoads.map((w) => (
+                  <tr
+                    key={`${w.userId}-${w.weekStart}`}
+                    className={cn(
+                      "border-b border-border/60",
+                      w.exceeded && "bg-rose-50/80 dark:bg-rose-950/25",
+                    )}
+                  >
+                    <td className="px-2 py-1.5 align-top whitespace-nowrap">
+                      {formatWeekRangeItalian(w.weekStart, w.weekEnd)}
+                    </td>
+                    <td className="px-2 py-1.5 align-top">{w.displayName}</td>
+                    <td className="px-2 py-1.5 align-top text-right tabular-nums">{w.assistentialHalfDays}</td>
+                    <td className="px-2 py-1.5 align-top text-right tabular-nums">{w.assistentialHours}</td>
+                    <td className="px-2 py-1.5 align-top text-right tabular-nums">{w.reperCount}</td>
+                    <td className="px-2 py-1.5 align-top">
+                      {w.exceeded ? (
+                        <span className="font-medium text-rose-800 dark:text-rose-200">Oltre limite</span>
+                      ) : (
+                        <span className="text-muted-foreground">OK</span>
+                      )}
+                      {w.contributingShifts.length > 0 ? (
+                        <details className="mt-1">
+                          <summary className="cursor-pointer text-[0.65rem] text-primary">Turni che contano le ore</summary>
+                          <ul className="mt-1 list-inside list-disc text-[0.65rem] text-muted-foreground">
+                            {w.contributingShifts.map((c) => (
+                              <li key={c.id}>{c.summary}</li>
+                            ))}
+                          </ul>
+                        </details>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+
+      {planningAssistentialConflicts.length > 0 ? (
+        <div className="space-y-2 rounded-2xl border border-orange-200/90 bg-orange-50/85 px-4 py-3 text-sm text-orange-950 dark:border-orange-900/50 dark:bg-orange-950/35 dark:text-orange-50">
+          <p className="font-medium">Conflitti turni assistenziali / indisponibilità</p>
+          <p className="text-xs text-orange-900/90 dark:text-orange-100/85">
+            Avviso non bloccante: ferie e desiderate su più giorni provengono da Ferie; lezioni e congressi a fascia da
+            “Blocchi didattica…” sotto. Le reperibilità non generano conflitto in questo riepilogo.
+          </p>
+          <div className="max-h-56 overflow-auto rounded-md border border-orange-200/70 bg-card/90 dark:border-orange-800/40">
+            <table className="w-full text-xs">
+              <thead className="sticky top-0 bg-card text-muted-foreground">
+                <tr className="border-b border-border">
+                  <th className="px-2 py-1.5 text-left font-medium">Data</th>
+                  <th className="px-2 py-1.5 text-left font-medium">Specializzando</th>
+                  <th className="px-2 py-1.5 text-left font-medium">Turno</th>
+                  <th className="px-2 py-1.5 text-left font-medium">Sala / amb.</th>
+                  <th className="px-2 py-1.5 text-left font-medium">Attività</th>
+                  <th className="px-2 py-1.5 text-left font-medium">Fascia attività</th>
+                  <th className="px-2 py-1.5 text-left font-medium">Messaggio</th>
+                </tr>
+              </thead>
+              <tbody>
+                {planningAssistentialConflicts.map((c, idx) => (
+                  <tr
+                    key={`${c.shiftItemId}-${c.shiftDate}-${c.activityKind}-${c.activityPeriodLabel}-${idx}`}
+                    className="border-b border-border/60"
+                  >
+                    <td className="px-2 py-1.5 whitespace-nowrap">{formatDateItalian(c.shiftDate)}</td>
+                    <td className="px-2 py-1.5">{c.assigneeName}</td>
+                    <td className="px-2 py-1.5">
+                      {c.shiftKindLabel} · {c.shiftPeriodLabel}
+                    </td>
+                    <td className="px-2 py-1.5">{c.locationLabel}</td>
+                    <td className="px-2 py-1.5">{c.activityKind}</td>
+                    <td className="px-2 py-1.5">{c.activityPeriodLabel}</td>
+                    <td className="px-2 py-1.5 font-medium text-orange-900 dark:text-orange-100">{c.shortMessage}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : null}
+
+      <details className="group rounded-2xl border border-border bg-card px-4 py-3 text-sm">
+        <summary className="cursor-pointer list-none font-medium text-foreground [&::-webkit-details-marker]:hidden">
+          <span className="inline-flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            Statistiche mensili per specializzando
+            <span className="text-xs font-normal text-muted-foreground">
+              Ore senza reper; weekend = sab/dom con assistenziale o reper; 36h settimanali (parziale ai bordi mese).
+            </span>
+          </span>
+        </summary>
+        <div className="mt-3 space-y-2">
+          <p className="text-xs text-muted-foreground">
+            Stessi contenuti del file Excel (stato piano, planning, statistiche, settimanale, conflitti).{" "}
+            <a
+              href={`/turni/monthly-plan-excel?month=${yearMonth}`}
+              className="text-primary underline-offset-2 hover:underline"
+            >
+              Scarica .xlsx
+            </a>
+          </p>
+          {monthlyTraineeStatistics.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Nessuna assegnazione nel mese.</p>
+          ) : (
+            <div className="max-h-64 overflow-auto rounded-md border border-border">
+              <table className="w-full min-w-[760px] text-xs">
+                <thead className="sticky top-0 bg-muted/80 text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-2 py-1.5 text-left font-medium">Specializzando</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Ore</th>
+                    <th className="px-2 py-1.5 text-right font-medium">½ gg</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Matt.</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Pome.</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Giorn.</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Reper</th>
+                    <th className="px-2 py-1.5 text-right font-medium">WE</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Confl.</th>
+                    <th className="px-2 py-1.5 text-right font-medium">&gt;36h</th>
+                    <th className="px-2 py-1.5 text-left font-medium">Bordi</th>
+                    <th className="px-2 py-1.5 text-left font-medium">Sale / amb.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthlyTraineeStatistics.map((row) => (
+                    <tr key={row.userId} className="border-b border-border/60">
+                      <td className="px-2 py-1.5 font-medium text-foreground">{row.userName}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{row.assistentialHoursMonth}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{row.assistentialHalfDays}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{row.morningShifts}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{row.afternoonShifts}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{row.fullDayShifts}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{row.reperShifts}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{row.weekendDaysWorked}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{row.conflictsCount}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums">{row.weeksOver36HoursCount}</td>
+                      <td className="px-2 py-1.5 text-muted-foreground">
+                        {row.hasPartialWeekAtMonthEdge ? "parziale" : "—"}
+                      </td>
+                      <td className="px-2 py-1.5 text-muted-foreground">
+                        {row.locationHalfDays.length === 0
+                          ? "—"
+                          : row.locationHalfDays.map((l) => `${l.locationLabel}: ${l.halfDays}`).join("; ")}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </details>
+
+      <TraineeWeeklySummaryPanel
+        summaries={weeklyTraineeSummaries}
+        monthStartStr={monthStartStr}
+        monthEndStr={monthEndStr}
+      />
 
       {loadWarnings.length > 0 ? (
         <div
@@ -1001,14 +1823,28 @@ export function TurniMonthView({
               salaPlanningAdd={salaPlanningAdd}
               salaDeletePlanning={salaDeletePlanning}
               salaAreaSelectOptions={salaLocationsForPlanning}
+              assignmentLocationSelectOptions={assignmentLocationsForPlanning}
+              weeklyExcessUserIds={weeklyExcessUserIds}
+              shiftConflictMessages={shiftConflictMessages}
+              traineeCompetencyRows={traineeCompetencyRows}
             />
           ))
         )}
       </div>
 
+      <AddTraineePlanningBlockCard
+        yearMonth={yearMonth}
+        planStatus={plan.status}
+        currentUserId={currentUserId}
+        currentUserRole={currentUserRole}
+        assigneeOptions={assigneeOptions}
+        monthStartStr={monthStartStr}
+        monthEndStr={monthEndStr}
+      />
+
       <div className="space-y-3 border-t border-border pt-4">
         <p className="text-sm font-medium text-foreground">Azioni sul mese</p>
-        {plan.status === "draft" && (currentUserRole === "admin" || currentUserRole === "specializzando") ? (
+        {plan.status === "draft" && currentUserRole === "admin" ? (
           <form action={submitMonthlyPlanAction} className="space-y-2">
             <input type="hidden" name="planId" value={plan.id} />
             <input type="hidden" name="month" value={yearMonth} />
@@ -1038,7 +1874,21 @@ export function TurniMonthView({
             <Button type="submit" className="bg-emerald-700 text-white hover:bg-emerald-800" size="sm">
               Approva mese
             </Button>
-            <p className="mt-1.5 text-xs text-muted-foreground">Blocca le modifiche per tutti i turni del mese.</p>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Blocca le modifiche per tutti i turni del mese. Per comunicarli al reparto serve anche «Pubblica turni».
+            </p>
+          </form>
+        ) : null}
+        {isAdmin && plan.status === "approved" && !isMonthlyShiftsPublished(plan) ? (
+          <form action={publishMonthlyShiftsPlanAction} className="pt-1">
+            <input type="hidden" name="planId" value={plan.id} />
+            <input type="hidden" name="month" value={yearMonth} />
+            <Button type="submit" size="sm">
+              Pubblica turni
+            </Button>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Ufficializza i turni al reparto (visibile ai specializzandi). Dopo «Riapri mese» andrà ripubblicato.
+            </p>
           </form>
         ) : null}
         {isAdmin && plan.status === "approved" ? (
@@ -1048,7 +1898,9 @@ export function TurniMonthView({
             <Button type="submit" variant="outline" size="sm">
               Riapri mese
             </Button>
-            <p className="mt-1.5 text-xs text-muted-foreground">Riporta il piano in bozza; annulla approvazione e sblocca assegnazioni.</p>
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Riporta il piano in bozza; annulla approvazione, pubblicazione e sblocca le assegnazioni.
+            </p>
           </form>
         ) : null}
       </div>

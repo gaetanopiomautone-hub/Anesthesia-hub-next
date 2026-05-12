@@ -7,6 +7,6 @@ const compat = new FlatCompat({
 export default [
   ...compat.extends("next/core-web-vitals"),
   {
-    ignores: ["node_modules/**", ".next/**", "dist/**", "coverage/**"],
+    ignores: ["node_modules/**", ".next/**", "dist/**", "coverage/**", "e2e/**"],
   },
 ];

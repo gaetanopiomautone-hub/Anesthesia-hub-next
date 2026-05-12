@@ -9,6 +9,22 @@ set
   name = excluded.name,
   sort_order = excluded.sort_order;
 
+-- Planning mensile: sale / attività (allineato a migration 20260511204500)
+insert into public.assignment_locations (name, kind, sort_order)
+select v.name, v.kind::public.assignment_location_kind, v.sort_order
+from (
+  values
+    ('Sala Orto', 'sala', 10),
+    ('Sala Cardio', 'sala', 20),
+    ('Ambulatorio', 'ambulatorio', 30),
+    ('Aula didattica', 'didattica', 40),
+    ('Congresso', 'congresso', 50),
+    ('Ferie', 'ferie', 60)
+) as v(name, kind, sort_order)
+where not exists (
+  select 1 from public.assignment_locations al where al.name = v.name
+);
+
 insert into public.clinical_locations (id, name, area_type, specialty)
 values
   ('00000000-0000-0000-0000-000000000101', 'S.O. 2 Ortopedia', 'sala_operatoria', 'Ortopedia'),
