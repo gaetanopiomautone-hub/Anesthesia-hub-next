@@ -4,8 +4,7 @@
 
 import { eachDayOfInterval, endOfMonth, format, getISODay, isWeekend, startOfMonth } from "date-fns";
 
-import type { MonthlyShiftPlanStatus } from "./monthly-shifts";
-import type { ShiftItemRow } from "./monthly-shifts";
+import type { MonthlyShiftPlanStatus, ShiftItemPeriod, ShiftItemRow } from "./monthly-shifts";
 
 type EditorRole = "specializzando" | "tutor" | "admin";
 
@@ -20,8 +19,43 @@ export function canEditAssignmentsByPlanAndRole(planStatus: MonthlyShiftPlanStat
 }
 
 /**
- * Nello stesso giorno, per la stessa persona: non più di un turno in sala; non mescolare sala e ambulatorio.
- * La reperibilità non entra in questa regola.
+ * Parti di giornata assistenziale (sala/amb) coperte dal `period` della riga.
+ * `giornata` occupa mattina e pomeriggio; `reperibilita` su fascia (dato anomalo) si tratta come giornata intera.
+ */
+export function assistentialOccupiedDayParts(period: ShiftItemPeriod): ("mattina" | "pomeriggio")[] {
+  switch (period) {
+    case "mattina":
+      return ["mattina"];
+    case "pomeriggio":
+      return ["pomeriggio"];
+    case "giornata":
+      return ["mattina", "pomeriggio"];
+    case "reperibilita":
+      return ["mattina", "pomeriggio"];
+    default:
+      return ["mattina", "pomeriggio"];
+  }
+}
+
+function countAssistentialPartOverlaps(rows: ShiftItemRow[]): { mattina: number; pomeriggio: number } {
+  let mattina = 0;
+  let pomeriggio = 0;
+  for (const r of rows) {
+    if (r.kind !== "sala" && r.kind !== "ambulatorio") continue;
+    for (const p of assistentialOccupiedDayParts(r.period)) {
+      if (p === "mattina") mattina += 1;
+      else pomeriggio += 1;
+    }
+  }
+  return { mattina, pomeriggio };
+}
+
+/**
+ * Nello stesso giorno, per la stessa persona:
+ * - sala: consentite mattina + pomeriggio (12h); vietate due mattine, due pomeriggi, giornata con mezze incompatibili.
+ * - ambulatorio: stessa logica sulle fasce.
+ * - non mescolare sala e ambulatorio.
+ * - la reperibilità (`kind`) non entra in questa regola.
  */
 export function validateSalaAmbSameDay(
   currentRow: ShiftItemRow,
@@ -29,6 +63,7 @@ export function validateSalaAmbSameDay(
 ):
   | { ok: true }
   | { ok: false; error: string; conflictItemIds: string[] } {
+  const allRows = [...otherRowsSameDaySameUser, currentRow];
   const conflictItemIds = () => otherRowsSameDaySameUser.map((r) => r.id);
 
   let sala = 0;
@@ -39,14 +74,6 @@ export function validateSalaAmbSameDay(
   }
   if (currentRow.kind === "sala") sala += 1;
   if (currentRow.kind === "ambulatorio") amb += 1;
-  if (sala > 1) {
-    return {
-      ok: false,
-      error:
-        "Già assegnato a un turno in sala in questo giorno. Non si possono due turni in sala nella stessa data.",
-      conflictItemIds: conflictItemIds(),
-    };
-  }
   if (sala >= 1 && amb >= 1) {
     return {
       ok: false,
@@ -54,6 +81,44 @@ export function validateSalaAmbSameDay(
       conflictItemIds: conflictItemIds(),
     };
   }
+
+  /** La reper non occupa fasce assistenziali: non applicare qui il vincolo doppia mattina/pomeriggio. */
+  if (currentRow.kind === "reperibilita") {
+    return { ok: true };
+  }
+
+  const assistentialKind: ShiftItemRow["kind"] | null =
+    currentRow.kind === "sala" || currentRow.kind === "ambulatorio"
+      ? currentRow.kind
+      : otherRowsSameDaySameUser.some((r) => r.kind === "sala")
+        ? "sala"
+        : otherRowsSameDaySameUser.some((r) => r.kind === "ambulatorio")
+          ? "ambulatorio"
+          : null;
+
+  if (assistentialKind == null) {
+    return { ok: true };
+  }
+
+  const sameKindRows = allRows.filter((r) => r.kind === assistentialKind);
+  const { mattina: m, pomeriggio: p } = countAssistentialPartOverlaps(sameKindRows);
+  if (m > 1 || p > 1) {
+    const dove = assistentialKind === "sala" ? "in sala" : "in ambulatorio";
+    let detail: string;
+    if (m > 1 && p > 1) {
+      detail = `più turni ${dove} che ricoprono mattina e pomeriggio (inclusa una giornata intera se presente).`;
+    } else if (m > 1) {
+      detail = `più turni ${dove} in mattina, oppure una giornata intera insieme a un altro impegno in mattina.`;
+    } else {
+      detail = `più turni ${dove} in pomeriggio, oppure una giornata intera insieme a un altro impegno in pomeriggio.`;
+    }
+    return {
+      ok: false,
+      error: `In questa data la stessa fascia oraria risulta già occupata ${dove}: ${detail} Mattina e pomeriggio distinti nello stesso giorno sono consentiti.`,
+      conflictItemIds: conflictItemIds(),
+    };
+  }
+
   return { ok: true };
 }
 

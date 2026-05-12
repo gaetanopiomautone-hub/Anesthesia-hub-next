@@ -560,7 +560,7 @@ function TurniItemRow({
         </p>
         {isConflictHighlight ? (
           <p className="text-[0.7rem] text-rose-800 dark:text-rose-200/90" title="Vincolo stesso giorno / stessa persona">
-            Già assegnato in questo giorno
+            Fascia già occupata o incompatibile nello stesso giorno
           </p>
         ) : null}
         {weeklyCapForAssignee ? (
