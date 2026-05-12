@@ -195,12 +195,24 @@ export async function updateShiftAssignment(shiftItemId: string, userId: string 
   }
 
   const supabase = await createServerSupabaseClient();
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("shift_items")
     .update({ assigned_to: userId, updated_at: new Date().toISOString() })
-    .eq("id", shiftItemId);
+    .eq("id", shiftItemId)
+    .select("id, assigned_to");
 
   if (error) throw new Error(error.message);
+  const rows = data ?? [];
+  if (rows.length === 0) {
+    throw new Error(
+      "Nessuna riga aggiornata: permessi RLS, riga inesistente, o sessione non riconosciuta come amministratore attivo.",
+    );
+  }
+  const saved = (rows[0] as { assigned_to: string | null }).assigned_to;
+  const norm = (v: string | null) => (v == null || v === "" ? null : v.trim().toLowerCase());
+  if (norm(saved) !== norm(userId)) {
+    throw new Error("Aggiornamento riga turno incompleto: valore assegnatario non coerente dopo il salvataggio.");
+  }
 }
 
 export async function submitMonthlyPlan(planId: string) {

@@ -214,6 +214,9 @@ export function findDatesInMonthCompletelyEmpty(
  * Messaggio comprensibile per l’utente a partire da errori Postgrest/RLS in italiano o inglese.
  */
 export function humanizePostgrestRlsError(message: string): string {
+  if (/nessuna riga aggiornata|nessuna riga modificata/i.test(message)) {
+    return "Il salvataggio non ha aggiornato il turno. Accedi come amministratore attivo, verifica che la riga esista e che le policy RLS sul database siano allineate (db push).";
+  }
   if (/row-level security|RLS|row-level|violates policy|policy (?:for|violation)/i.test(message)) {
     return "Non hai permessi per modificare questo turno. Verifica il ruolo e lo stato del piano mese (es. inviato = solo amministrazione).";
   }
