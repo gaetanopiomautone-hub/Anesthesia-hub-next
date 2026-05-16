@@ -428,6 +428,7 @@ function TurniItemRow({
   inlineError,
   isConflictHighlight,
   onAssign,
+  selectedQuickAssigneeId,
   deleteSalaPlanning,
   salaAreaSelectOptions,
   assignmentLocationSelectOptions,
@@ -446,6 +447,8 @@ function TurniItemRow({
   /** Riga in conflitto con l’ultimo tentativo (stessa persona, stessa data). */
   isConflictHighlight?: boolean;
   onAssign: (userId: string | null) => void;
+  /** Specializzando attivo in compilazione rapida (solo admin, piano modificabile). */
+  selectedQuickAssigneeId: string | null;
   /** Admin + piano in bozza: elimina slot sala (solo righe kind sala). */
   deleteSalaPlanning?: { planId: string; yearMonth: string } | null;
   /** Aree attive per cambio area su slot sala (solo bozza). */
@@ -495,6 +498,16 @@ function TurniItemRow({
   const assigneeMatchesAreaHint =
     Boolean(shiftAreaCode) && assignedProfile?.assegnazione === shiftAreaCode;
 
+  const quickAssignEligible = item.kind !== "reperibilita";
+  const quickAssignActive = Boolean(
+    canEdit && selectedQuickAssigneeId && quickAssignEligible && !isSaving,
+  );
+  const handleQuickSlotAssign = () => {
+    if (!quickAssignActive || !selectedQuickAssigneeId) return;
+    if (item.assigned_to === selectedQuickAssigneeId) return;
+    onAssign(selectedQuickAssigneeId);
+  };
+
   return (
     <div
       className={cn(
@@ -512,9 +525,46 @@ function TurniItemRow({
           : null,
         isSaving && "opacity-70",
         weeklyCapForAssignee && !isConflictHighlight && "ring-1 ring-amber-400/55 dark:ring-amber-600/50",
+        quickAssignActive && "ring-1 ring-primary/30",
       )}
     >
-      <div className="min-w-0 space-y-0.5">
+      <div
+        className={cn(
+          "min-w-0 flex-1 space-y-0.5",
+          quickAssignActive &&
+            "cursor-pointer rounded-md transition-colors hover:bg-primary/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50",
+        )}
+        role={quickAssignActive ? "button" : undefined}
+        tabIndex={quickAssignActive ? 0 : undefined}
+        onClick={
+          quickAssignActive
+            ? (e) => {
+                if ((e.target as Element).closest("[data-no-quick-assign]")) return;
+                handleQuickSlotAssign();
+              }
+            : undefined
+        }
+        onKeyDown={
+          quickAssignActive
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  handleQuickSlotAssign();
+                }
+              }
+            : undefined
+        }
+        aria-label={
+          quickAssignActive
+            ? `Assegna ${personLabel(assigneeOptions, selectedQuickAssigneeId)} a questo slot`
+            : undefined
+        }
+        title={
+          quickAssignActive
+            ? "Compilazione rapida: clic per assegnare o sostituire con il specializzando selezionato"
+            : undefined
+        }
+      >
         <div
           className={cn(
             "text-foreground",
@@ -598,32 +648,38 @@ function TurniItemRow({
           </div>
         ) : null}
         {item.kind === "sala" && assignmentLocationSelectOptions && assignmentLocationSelectOptions.length > 0 && deleteSalaPlanning ? (
-          <UpdatePlanningSalaAssignmentLocationRow
-            shiftItemId={item.id}
-            planId={deleteSalaPlanning.planId}
-            yearMonth={deleteSalaPlanning.yearMonth}
-            locations={assignmentLocationSelectOptions}
-            currentAssignmentLocationId={item.assignment_location_id}
-          />
+          <div data-no-quick-assign>
+            <UpdatePlanningSalaAssignmentLocationRow
+              shiftItemId={item.id}
+              planId={deleteSalaPlanning.planId}
+              yearMonth={deleteSalaPlanning.yearMonth}
+              locations={assignmentLocationSelectOptions}
+              currentAssignmentLocationId={item.assignment_location_id}
+            />
+          </div>
         ) : null}
         {item.kind === "sala" && salaAreaSelectOptions && salaAreaSelectOptions.length > 0 && deleteSalaPlanning ? (
-          <UpdatePlanningSalaClinicalAreaRow
-            shiftItemId={item.id}
-            planId={deleteSalaPlanning.planId}
-            yearMonth={deleteSalaPlanning.yearMonth}
-            areas={salaAreaSelectOptions}
-            currentClinicalAreaId={item.clinical_area_id}
-          />
+          <div data-no-quick-assign>
+            <UpdatePlanningSalaClinicalAreaRow
+              shiftItemId={item.id}
+              planId={deleteSalaPlanning.planId}
+              yearMonth={deleteSalaPlanning.yearMonth}
+              areas={salaAreaSelectOptions}
+              currentClinicalAreaId={item.clinical_area_id}
+            />
+          </div>
         ) : null}
         {item.kind === "sala" && deleteSalaPlanning ? (
-          <DeletePlanningSalaSlotForm
-            shiftItemId={item.id}
-            planId={deleteSalaPlanning.planId}
-            yearMonth={deleteSalaPlanning.yearMonth}
-          />
+          <div data-no-quick-assign>
+            <DeletePlanningSalaSlotForm
+              shiftItemId={item.id}
+              planId={deleteSalaPlanning.planId}
+              yearMonth={deleteSalaPlanning.yearMonth}
+            />
+          </div>
         ) : null}
       </div>
-      <div className="flex shrink-0 flex-col items-end gap-0.5">
+      <div className="flex shrink-0 flex-col items-end gap-0.5" data-no-quick-assign>
         <div className="flex items-center gap-2">
         {canEdit ? (
           <select
@@ -710,6 +766,7 @@ function BlockSection({
   pendingId,
   lastSavedId,
   onAssignItem,
+  selectedQuickAssigneeId,
   empty,
   blockId,
   rowErrors,
@@ -731,6 +788,7 @@ function BlockSection({
   pendingId: string | null;
   lastSavedId: string | null;
   onAssignItem: (itemId: string, userId: string | null) => void;
+  selectedQuickAssigneeId: string | null;
   empty: string;
   blockId: string;
   rowErrors: Record<string, string>;
@@ -786,6 +844,7 @@ function BlockSection({
               inlineError={rowErrors[item.id] ?? null}
               isConflictHighlight={conflictSet.has(item.id)}
               onAssign={(userId) => onAssignItem(item.id, userId)}
+              selectedQuickAssigneeId={selectedQuickAssigneeId}
               deleteSalaPlanning={deleteSalaPlanning}
               salaAreaSelectOptions={salaAreaSelectOptions}
               assignmentLocationSelectOptions={assignmentLocationSelectOptions}
@@ -819,6 +878,7 @@ function DayCard({
   pendingId,
   lastSavedId,
   onAssignItem,
+  selectedQuickAssigneeId,
   rowErrors,
   conflictItemIds,
   salaPlanningAdd,
@@ -837,6 +897,7 @@ function DayCard({
   pendingId: string | null;
   lastSavedId: string | null;
   onAssignItem: (itemId: string, userId: string | null) => void;
+  selectedQuickAssigneeId: string | null;
   rowErrors: Record<string, string>;
   conflictItemIds: string[];
   weeklyExcessUserIds: Set<string>;
@@ -891,6 +952,7 @@ function DayCard({
           pendingId={pendingId}
           lastSavedId={lastSavedId}
           onAssignItem={onAssignItem}
+          selectedQuickAssigneeId={selectedQuickAssigneeId}
           empty="Nessun turno in sala in mattinata."
           blockId={`${date}-mattina-empty`}
           rowErrors={rowErrors}
@@ -913,6 +975,7 @@ function DayCard({
           pendingId={pendingId}
           lastSavedId={lastSavedId}
           onAssignItem={onAssignItem}
+          selectedQuickAssigneeId={selectedQuickAssigneeId}
           empty="Nessun turno in sala in pomeriggio."
           blockId={`${date}-pom-empty`}
           rowErrors={rowErrors}
@@ -935,6 +998,7 @@ function DayCard({
           pendingId={pendingId}
           lastSavedId={lastSavedId}
           onAssignItem={onAssignItem}
+          selectedQuickAssigneeId={selectedQuickAssigneeId}
           empty="Nessun blocco ambulatorio."
           blockId={`${date}-amb-empty`}
           rowErrors={rowErrors}
@@ -954,6 +1018,7 @@ function DayCard({
           pendingId={pendingId}
           lastSavedId={lastSavedId}
           onAssignItem={onAssignItem}
+          selectedQuickAssigneeId={selectedQuickAssigneeId}
           empty="Nessun turno di reperibilità."
           blockId={`${date}-rep-empty`}
           rowErrors={rowErrors}
@@ -1128,10 +1193,20 @@ export function TurniMonthView({
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [lastSavedId, setLastSavedId] = useState<string | null>(null);
   const [viewFilter, setViewFilter] = useState<ViewFilter>({ kind: "all" });
+  const [selectedQuickAssigneeId, setSelectedQuickAssigneeId] = useState<string | null>(null);
 
   const isAdmin = currentUserRole === "admin";
   const canEditAssignments = canEditAssignmentsByPlanAndRole(plan.status, currentUserRole);
+  const showQuickAssignBar = isAdmin && canEditAssignments;
   const planIsApproved = plan.status === "approved";
+
+  useEffect(() => {
+    if (!showQuickAssignBar) {
+      setSelectedQuickAssigneeId(null);
+    }
+  }, [showQuickAssignBar]);
+
+  const quickAssigneeIdForRows = showQuickAssignBar ? selectedQuickAssigneeId : null;
 
   /** Opzioni sale serializzate dal server: normalizza per evitare select vuoto se props sono null/non-array. */
   const salaLocationsForPlanning = useMemo(() => {
@@ -1536,6 +1611,62 @@ export function TurniMonthView({
             {filteredItems.length}/{items.length} in vista
           </p>
         </div>
+        {showQuickAssignBar ? (
+          <div
+            className="mt-2 border-t border-border/70 pt-2"
+            role="region"
+            aria-label="Compilazione rapida turni"
+          >
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+              <label className="flex min-w-0 flex-col gap-1">
+                <span className="text-xs font-medium text-foreground">Compilazione rapida</span>
+                <select
+                  className="h-9 min-w-[12rem] max-w-full rounded-md border border-input bg-card px-2 text-sm sm:max-w-[min(100vw-2rem,22rem)]"
+                  value={selectedQuickAssigneeId ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setSelectedQuickAssigneeId(v === "" ? null : v);
+                  }}
+                  aria-label="Seleziona specializzando per compilazione rapida"
+                >
+                  <option value="">Seleziona specializzando…</option>
+                  {assigneeOptions.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.list_label.trim() || u.full_name?.trim() || u.email?.trim() || u.id}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {selectedQuickAssigneeId ? (
+                <>
+                  <p className="text-sm text-foreground" aria-live="polite">
+                    <span className="font-medium">Compilazione rapida:</span>{" "}
+                    {personLabel(assigneeOptions, selectedQuickAssigneeId)} selezionato
+                  </p>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setSelectedQuickAssigneeId(null)}
+                  >
+                    Svuota selezione
+                  </Button>
+                  {weeklyExcessUserIds.has(selectedQuickAssigneeId) ? (
+                    <p className="w-full rounded-md border border-amber-200/90 bg-amber-50/90 px-2 py-1.5 text-xs text-amber-950 dark:border-amber-800/50 dark:bg-amber-950/25 dark:text-amber-50 sm:basis-full">
+                      Attenzione: oltre {WEEKLY_ASSISTENTIAL_CAP_HOURS}h assistenziali in almeno una settimana (solo
+                      dati di questo mese).
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Seleziona un collega, poi clicca gli slot in sala o ambulatorio. La reperibilità resta dal menu a
+                  tendina.
+                </p>
+              )}
+            </div>
+          </div>
+        ) : null}
       </div>
 
       {assignError ? (
@@ -1795,7 +1926,7 @@ export function TurniMonthView({
             ? "Ruolo tutor: sola consultazione."
             : plan.status === "submitted" && currentUserRole === "specializzando"
               ? "Piano inviato: le assegnazioni possono essere modificate solo da un amministratore."
-              : "Ogni modifica al menu salva in automatico."}{" "}
+              : "Ogni modifica al menu salva in automatico. Con «Compilazione rapida» (barra sopra) puoi cliccare le righe slot per assegnare il collega selezionato."}{" "}
         <span className="whitespace-nowrap">({filteredItems.length} voci in vista</span> su {items.length} totali)
       </p>
 
@@ -1818,6 +1949,7 @@ export function TurniMonthView({
               pendingId={pendingId}
               lastSavedId={lastSavedId}
               onAssignItem={onAssignItem}
+              selectedQuickAssigneeId={quickAssigneeIdForRows}
               rowErrors={rowErrors}
               conflictItemIds={conflictItemIds}
               salaPlanningAdd={salaPlanningAdd}
