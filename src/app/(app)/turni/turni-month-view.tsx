@@ -49,7 +49,10 @@ import {
   addTraineePlanningBlockAction,
   type AddTraineePlanningBlockState,
 } from "@/app/(app)/turni/trainee-planning-block-actions";
+import { TurniDayDetailSheet } from "@/app/(app)/turni/turni-day-detail-sheet";
+import { TurniPlanCalendar } from "@/app/(app)/turni/turni-plan-calendar";
 import { TraineeWeeklySummaryPanel } from "@/app/(app)/turni/trainee-weekly-summary-panel";
+import { buildMonthlyPlanDaySummaries } from "@/lib/domain/monthly-plan-day-summary";
 import type { MonthlyShiftPlanRow, ShiftItemRow } from "@/lib/domain/monthly-shifts";
 import type { PlanningChangeLogRow } from "@/lib/data/planning-change-log";
 import {
@@ -66,6 +69,7 @@ import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils/cn";
 
 type ViewFilter = { kind: "all" } | { kind: "me" } | { kind: "user"; id: string };
+type LayoutMode = "calendar" | "extended";
 
 function groupByDay(items: ShiftItemRow[]): [string, ShiftItemRow[]][] {
   const map = new Map<string, ShiftItemRow[]>();
@@ -888,9 +892,11 @@ function DayCard({
   weeklyExcessUserIds,
   shiftConflictMessages,
   traineeCompetencyRows,
+  embedded = false,
 }: {
   date: string;
   items: ShiftItemRow[];
+  embedded?: boolean;
   canEdit: boolean;
   assignReadOnlyTitle: string;
   assigneeOptions: AssigneeOption[];
@@ -937,10 +943,17 @@ function DayCard({
     : null;
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-      <header className="border-b border-border/80 bg-card/95 px-4 py-3 sm:sticky sm:top-16 sm:z-[15] sm:shadow-sm sm:backdrop-blur-md">
-        <h2 className="text-base font-semibold text-foreground">{formatDateItalian(date)}</h2>
-      </header>
+    <section
+      className={cn(
+        "overflow-hidden rounded-2xl bg-card",
+        embedded ? "border-0 shadow-none" : "border border-border shadow-sm",
+      )}
+    >
+      {!embedded ? (
+        <header className="border-b border-border/80 bg-card/95 px-4 py-3 sm:sticky sm:top-16 sm:z-[15] sm:shadow-sm sm:backdrop-blur-md">
+          <h2 className="text-base font-semibold text-foreground">{formatDateItalian(date)}</h2>
+        </header>
+      ) : null}
       <div className="space-y-4 px-4 pb-5 pt-4">
         <BlockSection
           title="Mattina"
@@ -1194,6 +1207,8 @@ export function TurniMonthView({
   const [lastSavedId, setLastSavedId] = useState<string | null>(null);
   const [viewFilter, setViewFilter] = useState<ViewFilter>({ kind: "all" });
   const [selectedQuickAssigneeId, setSelectedQuickAssigneeId] = useState<string | null>(null);
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>("calendar");
+  const [selectedDay, setSelectedDay] = useState<string | null>(null);
 
   const isAdmin = currentUserRole === "admin";
   const canEditAssignments = canEditAssignmentsByPlanAndRole(plan.status, currentUserRole);
@@ -1344,6 +1359,32 @@ export function TurniMonthView({
   }, [items, viewFilter, currentUserId]);
 
   const days = useMemo(() => groupByDay(filteredItems), [filteredItems]);
+
+  const itemsByDate = useMemo(() => {
+    const map = new Map<string, ShiftItemRow[]>();
+    for (const item of filteredItems) {
+      const d = item.shift_date.trim().slice(0, 10);
+      if (!map.has(d)) map.set(d, []);
+      map.get(d)!.push(item);
+    }
+    return map;
+  }, [filteredItems]);
+
+  const daySummaries = useMemo(
+    () =>
+      buildMonthlyPlanDaySummaries({
+        items: filteredItems,
+        monthStart: monthStartStr,
+        monthEnd: monthEndStr,
+        conflicts: planningAssistentialConflicts,
+        weeklyExcessUserIds,
+      }),
+    [filteredItems, monthStartStr, monthEndStr, planningAssistentialConflicts, weeklyExcessUserIds],
+  );
+
+  useEffect(() => {
+    setSelectedDay(null);
+  }, [yearMonth]);
 
   const dayAnchor = parse(yearMonth, "yyyy-MM", new Date());
   const prevM = format(subMonths(dayAnchor, 1), "yyyy-MM");
@@ -1557,6 +1598,26 @@ export function TurniMonthView({
               >
                 →
               </Link>
+            </div>
+            <div className="hidden h-5 w-px shrink-0 bg-border sm:block" aria-hidden />
+            <span className="shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">Vista</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <Button
+                type="button"
+                variant={layoutMode === "calendar" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setLayoutMode("calendar")}
+              >
+                Calendario
+              </Button>
+              <Button
+                type="button"
+                variant={layoutMode === "extended" ? "default" : "outline"}
+                size="sm"
+                onClick={() => setLayoutMode("extended")}
+              >
+                Estesa
+              </Button>
             </div>
             <div className="hidden h-5 w-px shrink-0 bg-border sm:block" aria-hidden />
             <span className="shrink-0 text-xs font-medium uppercase tracking-wide text-muted-foreground">Mostra</span>
@@ -1935,8 +1996,71 @@ export function TurniMonthView({
           <p className="text-sm text-muted-foreground" role="status">
             Nessun turno corrisponde al filtro selezionato.
           </p>
-        ) : days.length === 0 ? (
+        ) : days.length === 0 && layoutMode === "extended" ? (
           <p className="text-sm text-muted-foreground">Nessuna riga in questo mese per questo piano.</p>
+        ) : layoutMode === "calendar" ? (
+          <>
+            <TurniPlanCalendar
+              monthAnchor={monthAnchor}
+              daySummaries={daySummaries}
+              selectedDate={selectedDay}
+              onSelectDate={setSelectedDay}
+            />
+            <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              <span className="inline-flex items-center gap-1">
+                <span className="h-2.5 w-2.5 rounded border border-emerald-300/80 bg-emerald-50/80 dark:border-emerald-800/50 dark:bg-emerald-950/30" />
+                Completo
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="h-2.5 w-2.5 rounded border border-amber-300/80 bg-amber-50/70 dark:border-amber-800/50 dark:bg-amber-950/25" />
+                Parziale
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="h-2.5 w-2.5 rounded border border-rose-400/80 bg-rose-50/80 dark:border-rose-800/50 dark:bg-rose-950/30" />
+                Conflitti
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="h-2.5 w-2.5 rounded border border-border/80 bg-muted/30" />
+                Vuoto / senza slot
+              </span>
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Clicca un giorno per aprire sale, ambulatori e reperibilità. La compilazione rapida resta attiva nella
+              barra in alto.
+            </p>
+            <TurniDayDetailSheet
+              date={selectedDay}
+              open={selectedDay != null}
+              onOpenChange={(open) => {
+                if (!open) setSelectedDay(null);
+              }}
+            >
+              {selectedDay ? (
+                <DayCard
+                  key={selectedDay}
+                  date={selectedDay}
+                  items={itemsByDate.get(selectedDay) ?? []}
+                  embedded
+                  canEdit={canEditAssignments}
+                  assignReadOnlyTitle={assignReadOnlyTitle}
+                  assigneeOptions={assigneeOptions}
+                  pendingId={pendingId}
+                  lastSavedId={lastSavedId}
+                  onAssignItem={onAssignItem}
+                  selectedQuickAssigneeId={quickAssigneeIdForRows}
+                  rowErrors={rowErrors}
+                  conflictItemIds={conflictItemIds}
+                  salaPlanningAdd={salaPlanningAdd}
+                  salaDeletePlanning={salaDeletePlanning}
+                  salaAreaSelectOptions={salaLocationsForPlanning}
+                  assignmentLocationSelectOptions={assignmentLocationsForPlanning}
+                  weeklyExcessUserIds={weeklyExcessUserIds}
+                  shiftConflictMessages={shiftConflictMessages}
+                  traineeCompetencyRows={traineeCompetencyRows}
+                />
+              ) : null}
+            </TurniDayDetailSheet>
+          </>
         ) : (
           days.map(([date, dayItems]) => (
             <DayCard
