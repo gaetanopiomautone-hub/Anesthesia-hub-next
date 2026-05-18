@@ -1964,6 +1964,8 @@ export function TurniMonthView({
         summaries={weeklyTraineeSummaries}
         monthStartStr={monthStartStr}
         monthEndStr={monthEndStr}
+        viewerRole={currentUserRole}
+        viewerUserId={currentUserId}
       />
 
       {loadWarnings.length > 0 ? (

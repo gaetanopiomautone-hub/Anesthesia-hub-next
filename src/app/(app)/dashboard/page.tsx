@@ -5,11 +5,15 @@ import { Card } from "@/components/ui/card";
 import { roleLabels } from "@/lib/auth/roles";
 import { autonomyLabel, getDashboardData, leaveStatusLabel, supervisionLabel } from "@/lib/data/dashboard";
 import { leaveTypeLabelItalian } from "@/lib/data/leave-requests";
+import { TraineeMyWeekCard } from "@/app/(app)/dashboard/trainee-my-week-card";
+import { loadTraineeDashboardCurrentWeek } from "@/lib/data/trainee-dashboard-week";
 import { profileDashboardGreetingTitle } from "@/lib/domain/profile-greeting";
 
 export default async function DashboardPage() {
   const user = await requireSection("dashboard");
   const dashboard = await getDashboardData(user);
+  const traineeWeek =
+    user.role === "specializzando" ? await loadTraineeDashboardCurrentWeek(user) : null;
 
   const roleHighlights = {
     specializzando: "Vedi i tuoi turni, inserisci ferie, aggiorna il logbook e controlla la progressione procedure.",
@@ -48,6 +52,12 @@ export default async function DashboardPage() {
           <p className="mt-1 text-sm text-muted-foreground">{dashboard.fourthCardSubtitle}</p>
         </Card>
       </section>
+
+      {traineeWeek ? (
+        <section>
+          <TraineeMyWeekCard payload={traineeWeek} />
+        </section>
+      ) : null}
 
       <section className="grid gap-6 xl:grid-cols-[1.3fr_1fr]">
         <Card title="Prossima assegnazione" description="Dal calendario turni reale">
