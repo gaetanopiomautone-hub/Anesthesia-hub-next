@@ -1,6 +1,7 @@
- "use client";
+"use client";
 
 import type { LeaveRequestRow } from "@/lib/domain/leave-request-shared";
+import { formatYmd, isValidYearMonth, parseYmd, toLocalDateFromYmd } from "@/lib/dates/ymd";
 
 type MonthCalendarProps = {
   yearMonth: string;
@@ -11,33 +12,20 @@ type MonthCalendarProps = {
 
 const WEEKDAY_LABELS = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"] as const;
 
-function parseYearMonth(yearMonth: string) {
-  const [yearRaw, monthRaw] = yearMonth.split("-");
-  const year = Number(yearRaw);
-  const month = Number(monthRaw);
-  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) return null;
-  return { year, month };
-}
-
-function toYmd(d: Date) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-}
-
 function getMonthGrid(yearMonth: string) {
-  const parsed = parseYearMonth(yearMonth);
-  if (!parsed) return Array.from({ length: 35 }, () => null as string | null);
+  if (!isValidYearMonth(yearMonth)) return Array.from({ length: 35 }, () => null as string | null);
 
-  const firstDay = new Date(parsed.year, parsed.month - 1, 1);
-  const lastDay = new Date(parsed.year, parsed.month, 0);
+  const { year, month } = parseYmd(`${yearMonth}-01`);
+  const firstDay = toLocalDateFromYmd(`${yearMonth}-01`);
+  const lastDay = new Date(year, month, 0, 12, 0, 0, 0);
   const totalDays = lastDay.getDate();
-  const firstDayWeekdayMonBased = (firstDay.getDay() + 6) % 7; // Mon=0 ... Sun=6
+  const firstDayWeekdayMonBased = (firstDay.getDay() + 6) % 7;
 
   const cells: Array<string | null> = [];
   for (let i = 0; i < firstDayWeekdayMonBased; i += 1) cells.push(null);
-  for (let day = 1; day <= totalDays; day += 1) cells.push(toYmd(new Date(parsed.year, parsed.month - 1, day)));
+  for (let day = 1; day <= totalDays; day += 1) {
+    cells.push(formatYmd({ year, month, day }));
+  }
   while (cells.length % 7 !== 0) cells.push(null);
 
   return cells;

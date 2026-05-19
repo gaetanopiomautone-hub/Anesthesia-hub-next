@@ -1,7 +1,7 @@
 import { normalizeDayInMonth } from "../../../lib/dates/day-in-month";
+import { isValidYearMonth } from "@/lib/dates/ymd";
 
 const FERIE_PATH = "/ferie";
-const MONTH_PARAM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 export type FerieContext = {
   month: string | null;
@@ -18,8 +18,7 @@ type FeriePathContext = {
 
 export function parseFerieContextFromForm(formData: FormData): FerieContext {
   const monthRaw = formData.get("month");
-  const month =
-    typeof monthRaw === "string" && MONTH_PARAM_RE.test(monthRaw.trim()) ? monthRaw.trim() : null;
+  const month = typeof monthRaw === "string" && isValidYearMonth(monthRaw.trim()) ? monthRaw.trim() : null;
 
   if (!month) return { month: null, day: null };
 

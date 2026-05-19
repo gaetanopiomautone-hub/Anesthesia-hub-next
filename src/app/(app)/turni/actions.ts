@@ -165,7 +165,7 @@ export async function saveShiftDraftAction(formData: FormData) {
     redirect(turniPathWithContext(month, day, undefined, `Salvataggio bozza non riuscito: ${updateError.message}`));
   }
   revalidatePath("/turni");
-  revalidatePath("/turni-ferie");
+  revalidatePath("/ferie");
   redirect(turniPathWithContext(month, day, "draft_saved"));
 }
 
@@ -222,7 +222,7 @@ export async function submitShiftProposalAction(formData: FormData) {
     redirect(turniPathWithContext(month, day, undefined, `Invio proposta non riuscito: ${updateError.message}`));
   }
   revalidatePath("/turni");
-  revalidatePath("/turni-ferie");
+  revalidatePath("/ferie");
   redirect(turniPathWithContext(month, day, "submitted"));
 }
 
@@ -291,7 +291,7 @@ export async function approveShiftAction(formData: FormData) {
     redirect(turniPathWithContext(month, day, undefined, `Approvazione non riuscita: ${updateError.message}`));
   }
   revalidatePath("/turni");
-  revalidatePath("/turni-ferie");
+  revalidatePath("/ferie");
   redirect(turniPathWithContext(month, day, "approved"));
 }
 
@@ -345,7 +345,7 @@ export async function rejectShiftAction(formData: FormData) {
   }
 
   revalidatePath("/turni");
-  revalidatePath("/turni-ferie");
+  revalidatePath("/ferie");
   redirect(turniPathWithContext(month, day, "rejected"));
 }
 

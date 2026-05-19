@@ -4,7 +4,7 @@ import type { PlanningBlockInput, PlanningLeaveRangeInput } from "@/lib/domain/p
 function mapLeaveRaw(raw: Record<string, unknown>): PlanningLeaveRangeInput {
   return {
     id: String(raw.id ?? ""),
-    userId: String(raw.user_id ?? raw.requester_profile_id ?? "").trim(),
+    userId: String(raw.user_id ?? "").trim(),
     requestType: String(raw.request_type ?? ""),
     startDate: String(raw.start_date ?? "").trim().slice(0, 10),
     endDate: String(raw.end_date ?? "").trim().slice(0, 10),

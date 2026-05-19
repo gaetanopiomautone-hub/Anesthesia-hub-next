@@ -1,5 +1,7 @@
-import { format, isValid } from "date-fns";
+import { format } from "date-fns";
 import { it } from "date-fns/locale";
+
+import { toLocalDateFromYmd } from "@/lib/dates/ymd";
 
 export type LeaveRequestStatus = "pending" | "approved" | "rejected" | "cancelled";
 export type LeaveRequestType = "vacation" | "permission" | "sick_leave" | "conference" | "other";
@@ -15,6 +17,7 @@ export type LeaveRequestRow = {
   reviewed_by: string | null;
   reviewed_at: string | null;
   review_note: string | null;
+  cancelled_at: string | null;
   created_at: string;
   requester?: { full_name: string | null; email: string | null } | null;
   approver?: { full_name: string | null; email: string | null } | null;
@@ -57,9 +60,10 @@ export function leaveTypeLabelItalian(type: LeaveRequestType | null | undefined)
 }
 
 export function formatDateItalian(value: string) {
-  const parsed = new Date(value);
-  if (!isValid(parsed)) {
+  try {
+    const parsed = toLocalDateFromYmd(value);
+    return format(parsed, "dd/MM/yyyy", { locale: it });
+  } catch {
     return value?.trim() ? value : "—";
   }
-  return format(parsed, "dd/MM/yyyy", { locale: it });
 }

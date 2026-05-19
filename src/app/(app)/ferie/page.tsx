@@ -1,4 +1,4 @@
-import { endOfMonth, format, isValid, parse, startOfMonth } from "date-fns";
+import { format } from "date-fns";
 import { it } from "date-fns/locale";
 import { redirect } from "next/navigation";
 
@@ -7,6 +7,8 @@ import { Card } from "@/components/ui/card";
 import { requireSection } from "@/lib/auth/get-current-user-profile";
 import { normalizeDayInMonth } from "@/lib/dates/day-in-month";
 import { getMonthContext } from "@/lib/dates/getMonthContext";
+import { compareYmd, formatYmd, isValidYearMonth, monthEndYmd, monthStartYmd, toLocalDateFromYmd } from "@/lib/dates/ymd";
+import { LEAVE_OVERLAP_ERROR_MESSAGE } from "@/lib/data/leave-request-overlap";
 import { listLeaveRequests } from "@/lib/data/leave-requests";
 
 import {
@@ -26,21 +28,14 @@ type FeriePageProps = {
   }>;
 };
 
-const MONTH_PARAM_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
-
 function resolveMonthContext(monthParam?: string) {
-  if (!monthParam || !MONTH_PARAM_RE.test(monthParam)) return null;
-  const parsed = parse(monthParam, "yyyy-MM", new Date());
-  if (!isValid(parsed)) return null;
+  if (!monthParam || !isValidYearMonth(monthParam)) return null;
 
-  const monthStart = startOfMonth(parsed);
-  const monthEnd = endOfMonth(parsed);
-  const today = new Date();
-  const todayYmd = format(today, "yyyy-MM-dd");
-  const startYmd = format(monthStart, "yyyy-MM-dd");
-  const endYmd = format(monthEnd, "yyyy-MM-dd");
-  const monthLabel = format(parsed, "MMMM yyyy", { locale: it });
-  const defaultStart = todayYmd >= startYmd && todayYmd <= endYmd ? todayYmd : startYmd;
+  const startYmd = monthStartYmd(monthParam);
+  const endYmd = monthEndYmd(monthParam);
+  const todayYmd = formatYmd(new Date());
+  const monthLabel = format(toLocalDateFromYmd(startYmd), "MMMM yyyy", { locale: it });
+  const defaultStart = compareYmd(todayYmd, startYmd) >= 0 && compareYmd(todayYmd, endYmd) <= 0 ? todayYmd : startYmd;
 
   return {
     monthLabel,
@@ -89,7 +84,7 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
           className="rounded-lg border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive"
         >
           {actionErrorCode === "overlap"
-            ? "Hai già una richiesta ferie in questo periodo (anche parziale). Modifica quella esistente oppure scegli altre date."
+            ? `${LEAVE_OVERLAP_ERROR_MESSAGE} Modifica quella esistente oppure scegli altre date.`
             : actionError}
         </div>
       ) : null}
@@ -119,8 +114,8 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
               month={monthContextBase.yearMonth}
               day={normalizedDay}
               monthLabel={monthContext?.monthLabel ?? monthContextBase.yearMonth}
-              defaultStartDate={monthContext?.defaultStartDate}
-              defaultEndDate={monthContext?.defaultEndDate}
+              defaultStartDate={normalizedDay ?? monthContext?.defaultStartDate}
+              defaultEndDate={normalizedDay ?? monthContext?.defaultEndDate}
               minDate={monthContext?.minDate}
               maxDate={monthContext?.maxDate}
               existingLeaves={rows.map((row) => ({

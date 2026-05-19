@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 
 import type { LeaveRequestStatus } from "@/lib/domain/leave-request-shared";
 import { hasDateOverlap } from "@/lib/dates/hasDateOverlap";
+import { parseYmd } from "@/lib/dates/ymd";
 
 type ExistingLeave = {
   start: string;
@@ -35,9 +36,14 @@ function useDebouncedValue<T>(value: T, delayMs = 150) {
 }
 
 function formatIsoDate(isoDate: string) {
-  const [y, m, d] = isoDate.split("-");
-  if (!y || !m || !d) return isoDate;
-  return `${d}/${m}/${y}`;
+  try {
+    const { year, month, day } = parseYmd(isoDate);
+    const m = String(month).padStart(2, "0");
+    const d = String(day).padStart(2, "0");
+    return `${d}/${m}/${year}`;
+  } catch {
+    return isoDate;
+  }
 }
 
 function formatRange(start: string, end: string) {
@@ -57,6 +63,17 @@ export function NewLeaveRequestForm({
 }: NewLeaveRequestFormProps) {
   const [startDate, setStartDate] = useState(defaultStartDate ?? "");
   const [endDate, setEndDate] = useState(defaultEndDate ?? "");
+
+  useEffect(() => {
+    if (day) {
+      setStartDate(day);
+      setEndDate(day);
+      return;
+    }
+    if (defaultStartDate) setStartDate(defaultStartDate);
+    if (defaultEndDate) setEndDate(defaultEndDate);
+  }, [day, defaultStartDate, defaultEndDate]);
+
   const debouncedStart = useDebouncedValue(startDate, 150);
   const debouncedEnd = useDebouncedValue(endDate, 150);
 

@@ -49,7 +49,7 @@ end$$;
 do $$
 begin
   if not exists (select 1 from pg_type where typname = 'approval_status') then
-    create type public.approval_status as enum ('in_attesa', 'approvato', 'rifiutato');
+    create type public.approval_status as enum ('in_attesa', 'approvato', 'rifiutato', 'annullato');
   end if;
 end$$;
 
@@ -227,14 +227,15 @@ where status = 'approved'
 
 create table if not exists public.leave_requests (
   id uuid primary key default gen_random_uuid(),
-  requester_profile_id uuid not null references public.profiles (id) on delete cascade,
+  user_id uuid not null references public.profiles (id) on delete cascade,
   request_type public.leave_request_type not null,
   start_date date not null,
   end_date date not null,
   status public.approval_status not null default 'in_attesa',
   note text,
-  approved_by uuid references public.profiles (id) on delete set null,
-  approved_at timestamptz,
+  reviewed_by uuid references public.profiles (id) on delete set null,
+  reviewed_at timestamptz,
+  cancelled_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint leave_requests_date_check check (end_date >= start_date)
@@ -254,11 +255,23 @@ begin
   ) then
     alter table public.leave_requests
       add constraint leave_requests_approval_integrity check (
-        (status = 'in_attesa' and approved_by is null and approved_at is null)
+        (
+          status = 'in_attesa'
+          and reviewed_by is null
+          and reviewed_at is null
+          and cancelled_at is null
+        )
+        or (
+          status = 'annullato'
+          and reviewed_by is null
+          and reviewed_at is null
+          and cancelled_at is not null
+        )
         or (
           status in ('approvato', 'rifiutato')
-          and approved_by is not null
-          and approved_at is not null
+          and reviewed_by is not null
+          and reviewed_at is not null
+          and cancelled_at is null
         )
       );
   end if;

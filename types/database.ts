@@ -39,12 +39,15 @@ export type Database = {
       leave_requests: {
         Row: {
           id: string;
-          requester_profile_id: string;
+          user_id: string;
           request_type: string;
           start_date: string;
           end_date: string;
           status: string;
           note: string | null;
+          reviewed_by: string | null;
+          reviewed_at: string | null;
+          cancelled_at: string | null;
         };
       };
       university_events: {

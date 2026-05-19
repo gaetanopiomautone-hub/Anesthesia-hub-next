@@ -116,7 +116,10 @@ Vincoli applicati:
 
 ## Test E2E (Playwright)
 
-Coprono in modo **minimo** il modulo **Turni**: login, barra planning sticky (link mese prec/succ + filtri), flusso opzionale approvazione/pubblicazione/riapertura per admin, **comportamento specializzando** (mese fittizio senza piano; mese corrente in **pre-pubblicazione** messaggio + export disabilitati senza griglia «Tutti», oppure **post-pubblicazione** con griglia e link Excel/PDF quando il DB è in quello stato), `href` di PDF/Excel (senza validare il binario).
+Coprono in modo **minimo** i moduli **Turni** e **Ferie**:
+
+- **Turni**: login, barra planning sticky (link mese prec/succ + filtri), flusso opzionale approvazione/pubblicazione/riapertura per admin, **comportamento specializzando** (mese fittizio senza piano; mese corrente pre/post pubblicazione), `href` di PDF/Excel (senza validare il binario).
+- **Ferie (specializzando)**: login → `/ferie?month=2026-07` → click giorno 15 → verifica `startDate`/`endDate` → submit → redirect `ok=created` → stato «In attesa»; secondo test overlap sullo stesso periodo (`errorCode=overlap`, nessun messaggio 42501). Test opzionale su maggio 2026 se esiste overlap con dati seed.
 
 ### Prerequisiti browser
 
@@ -134,8 +137,9 @@ npm run e2e:install
 | `PLAYWRIGHT_START_SERVER` | Opzionale | Se `1`, avvia `npm run dev` prima dei test |
 | `E2E_ADMIN_EMAIL` | Per test admin | Email Supabase (nessuna password in repo) |
 | `E2E_ADMIN_PASSWORD` | Per test admin | Password dell’utente admin di test |
-| `E2E_SPECIALIZZANDO_EMAIL` | Per test permessi | Email utente `specializzando` |
-| `E2E_SPECIALIZZANDO_PASSWORD` | Per test permessi | Password |
+| `E2E_SPECIALIZZANDO_EMAIL` | Per test permessi / ferie | Email utente `specializzando` |
+| `E2E_SPECIALIZZANDO_PASSWORD` | Per test permessi / ferie | Password |
+| `SUPABASE_SERVICE_ROLE_KEY` | Per test **Ferie** seriali | Cleanup idempotente su `2026-07-15` prima del run |
 
 Se mancano le coppie admin o specializzando, il relativo test viene **saltato** (`skipped`), non fallisce.
 
@@ -158,7 +162,11 @@ Report HTML: cartella `playwright-report/` dopo l’esecuzione.
 
 ## Test unitari (Vitest)
 
-Contratti e logica pura (nessun browser). Tra gli altri, il parser del JSON della RPC `turni_shift_plan_month_state` (`none` / `internal` / `published`).
+Contratti e logica pura (nessun browser). Tra gli altri:
+
+- parser RPC `turni_shift_plan_month_state`
+- **schema guard** `leave_requests` (`src/lib/domain/leave-requests-schema-guard*.test.ts`): fallisce se mapper/SQL/policy divergono dal contratto in `leave-requests-db-contract.ts`
+- con `NEXT_PUBLIC_SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`, il guard integrazione verifica anche le colonne reali via PostgREST
 
 ```bash
 npm run test:unit
@@ -166,7 +174,8 @@ npm run test:unit
 
 ### Limiti noti
 
-- Senza le variabili `E2E_*` i due blocchi sono **skipped** (exit 0) e **non** avviano il browser.
+- Senza le variabili `E2E_*` i blocchi Turni/Ferie sono **skipped** (exit 0) e **non** avviano il browser.
+- I test **Ferie** seriali richiedono anche `SUPABASE_SERVICE_ROLE_KEY`: prima del run eliminano eventuali richieste su `2026-07-15` per l’utente E2E, poi creano la richiesta e verificano l’overlap. Usare un utente specializzando di test.
 - I test **admin** modificano lo stato del piano del **mese corrente** (URL `/turni` senza `?month=`) quando eseguono approva/pubblica/riapri: usare un progetto di test o un mese dedicato; il blocco **specializzando** sul mese corrente dipende da quello stato (pre o post pubblicazione).
 - Il test specializzando su **`/turni?month=2099-01`** non dipende dai dati reali (nessun piano atteso).
 - Nessun piano per il mese (admin): il test admin salta le fasi approve/publish e resta verde.

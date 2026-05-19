@@ -233,7 +233,7 @@ on public.leave_requests
 for select
 to authenticated
 using (
-  requester_profile_id = auth.uid()
+  user_id = auth.uid()
   or public.is_scheduler_or_admin()
 );
 
@@ -243,10 +243,11 @@ on public.leave_requests
 for insert
 to authenticated
 with check (
-  requester_profile_id = auth.uid()
+  user_id = auth.uid()
   and status = 'in_attesa'
-  and approved_by is null
-  and approved_at is null
+  and reviewed_by is null
+  and reviewed_at is null
+  and cancelled_at is null
 );
 
 drop policy if exists "leave_update_own_only_pending" on public.leave_requests;
@@ -255,14 +256,17 @@ on public.leave_requests
 for update
 to authenticated
 using (
-  requester_profile_id = auth.uid()
+  user_id = auth.uid()
   and status = 'in_attesa'
 )
 with check (
-  requester_profile_id = auth.uid()
-  and status = 'in_attesa'
-  and approved_by is null
-  and approved_at is null
+  user_id = auth.uid()
+  and reviewed_by is null
+  and reviewed_at is null
+  and (
+    (status = 'in_attesa' and cancelled_at is null)
+    or (status = 'annullato' and cancelled_at is not null)
+  )
 );
 
 -- Solo transizione da in_attesa a approvato/rifiutato; approvatore = utente corrente; niente riscrittura storico.
@@ -278,8 +282,9 @@ using (
 with check (
   public.is_scheduler_or_admin()
   and status in ('approvato', 'rifiutato')
-  and approved_by = auth.uid()
-  and approved_at is not null
+  and reviewed_by = auth.uid()
+  and reviewed_at is not null
+  and cancelled_at is null
 );
 
 -- ---------------------------------------------------------------------------

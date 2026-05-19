@@ -8,6 +8,7 @@ import {
   probeShiftsAssigneeFilterColumn,
   type ShiftsAssigneeFilterColumn,
 } from "@/lib/data/shifts";
+import { mapLeaveRequestFromDb } from "@/lib/domain/leave-request-db";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type LeaveRequestRow = {
@@ -267,14 +268,23 @@ export async function getDashboardData(profile: CurrentUserProfile) {
       throw new Error(`leave_requests query failed: ${leaveError.message}`);
     }
 
-    leaveRows = (leaves ?? []) as LeaveRequestRow[];
+    leaveRows = (leaves ?? []).map((row) => {
+      const mapped = mapLeaveRequestFromDb(row as Record<string, unknown>);
+      return {
+        id: mapped.id,
+        request_type: mapped.request_type,
+        start_date: mapped.start_date,
+        end_date: mapped.end_date,
+        status: mapped.status,
+      };
+    });
 
     if (profile.role === "specializzando") {
       const { count, error } = await supabase
         .from("leave_requests")
         .select("id", { count: "exact", head: true })
         .eq("user_id", profile.id)
-        .eq("status", "pending");
+        .eq("status", "in_attesa");
 
       if (error) {
         throw new Error(`leave_requests pending count failed: ${error.message}`);
@@ -285,7 +295,7 @@ export async function getDashboardData(profile: CurrentUserProfile) {
       const { count, error } = await supabase
         .from("leave_requests")
         .select("id", { count: "exact", head: true })
-        .eq("status", "pending");
+        .eq("status", "in_attesa");
 
       if (error) {
         throw new Error(`leave_requests pending count failed: ${error.message}`);

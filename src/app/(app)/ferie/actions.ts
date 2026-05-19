@@ -8,6 +8,20 @@ import { z } from "zod";
 import { feriePathWithContext, parseFerieContextFromForm } from "@/app/(app)/ferie/ferie-url-context";
 import { requireUser } from "@/lib/auth/get-current-user-profile";
 import { canAccess } from "@/lib/auth/permissions";
+import {
+  assertValidLeaveDateRange,
+  findOverlappingActiveLeaveRequest,
+  LEAVE_OVERLAP_ERROR_CODE,
+  LEAVE_OVERLAP_ERROR_MESSAGE,
+  LeaveDateRangeError,
+} from "@/lib/data/leave-request-overlap";
+import {
+  mapLeaveRequestFromDb,
+  mapLeaveRequestToDbCancel,
+  mapLeaveRequestToDbInsert,
+  mapLeaveRequestToDbReview,
+  mapLeaveRequestToDbUpdate,
+} from "@/lib/domain/leave-request-db";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 const leaveRequestSchema = z.object({
@@ -120,12 +134,22 @@ function parseLeaveCancelForm(formData: FormData) {
   return result.data;
 }
 
-function requireDateOrderOrRedirect(startDate: string, endDate: string) {
-  if (new Date(startDate).getTime() > new Date(endDate).getTime()) {
-    redirectToFerieWithError("La data di fine deve essere successiva o uguale alla data di inizio.");
+function requireDateOrderOrRedirect(
+  startDate: string,
+  endDate: string,
+  context?: { month?: string | null; day?: string | null },
+) {
+  try {
+    assertValidLeaveDateRange(startDate, endDate);
+  } catch (error) {
+    if (error instanceof LeaveDateRangeError) {
+      redirectToFerieWithError(error.message, context);
+    }
+    throw error;
   }
 }
 
+/** Wrapper action: unico ingresso overlap lato server (create/update). */
 async function ensureNoLeaveOverlapOrRedirect(params: {
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>;
   userId: string;
@@ -133,54 +157,39 @@ async function ensureNoLeaveOverlapOrRedirect(params: {
   endDate: string;
   month: string | null;
   day?: string | null;
-  excludeId?: string;
+  excludeRequestId?: string;
 }) {
-  let overlapQuery = params.supabase
-    .from("leave_requests")
-    .select("id")
-    .eq("user_id", params.userId)
-    .in("status", ["pending", "approved"])
-    .lte("start_date", params.endDate)
-    .gte("end_date", params.startDate)
-    .limit(1);
+  const overlap = await findOverlappingActiveLeaveRequest(params.supabase, {
+    userId: params.userId,
+    startDate: params.startDate,
+    endDate: params.endDate,
+    excludeRequestId: params.excludeRequestId,
+  });
 
-  if (params.excludeId) {
-    overlapQuery = overlapQuery.neq("id", params.excludeId);
+  if (overlap.error) {
+    redirectToFerieWithError(friendlyPostgresMessage(overlap.error), { month: params.month, day: params.day });
   }
 
-  const { data: overlapRows, error: overlapError } = await overlapQuery;
-
-  if (overlapError) {
-    redirectToFerieWithError(friendlyPostgresMessage(overlapError), { month: params.month, day: params.day });
-  }
-
-  if (overlapRows?.length) {
-    redirectToFerieWithError("Hai già una richiesta ferie in questo periodo (anche parziale).", {
+  if (overlap.overlappingId) {
+    redirectToFerieWithError(LEAVE_OVERLAP_ERROR_MESSAGE, {
       month: params.month,
       day: params.day,
-      errorCode: "overlap",
+      errorCode: LEAVE_OVERLAP_ERROR_CODE,
     });
   }
 }
 
 function revalidateLeaveViews() {
   revalidatePath("/ferie");
-  revalidatePath("/turni-ferie");
+  revalidatePath("/turni");
   revalidatePath("/dashboard");
-}
-
-function normalizeLeaveRequestType(requestType: z.infer<typeof leaveRequestSchema>["requestType"]) {
-  if (requestType === "ferie") return "vacation";
-  if (requestType === "desiderata") return "other";
-  return requestType;
 }
 
 export async function createLeaveRequestAction(formData: FormData) {
   const { month, day } = parseFerieContextFromForm(formData);
   const profile = await requireFerieTrainee();
   const parsed = parseLeaveRequestForm(formData);
-  requireDateOrderOrRedirect(parsed.startDate, parsed.endDate);
-  const requestType = normalizeLeaveRequestType(parsed.requestType);
+  requireDateOrderOrRedirect(parsed.startDate, parsed.endDate, { month, day });
 
   const supabase = await createServerSupabaseClient();
   await ensureNoLeaveOverlapOrRedirect({
@@ -192,16 +201,15 @@ export async function createLeaveRequestAction(formData: FormData) {
     day,
   });
 
-  const { error } = await supabase.from("leave_requests").insert({
-    user_id: profile.id,
-    request_type: requestType,
-    start_date: parsed.startDate,
-    end_date: parsed.endDate,
-    status: "pending",
-    reason: parsed.reason?.trim() ? parsed.reason.trim() : null,
-    reviewed_by: null,
-    reviewed_at: null,
-  });
+  const { error } = await supabase.from("leave_requests").insert(
+    mapLeaveRequestToDbInsert({
+      userId: profile.id,
+      requestType: parsed.requestType,
+      startDate: parsed.startDate,
+      endDate: parsed.endDate,
+      reason: parsed.reason,
+    }),
+  );
 
   if (error) {
     redirectToFerieWithError(friendlyPostgresMessage(error), { month, day });
@@ -215,20 +223,21 @@ export async function updateLeaveRequestAction(formData: FormData) {
   const { month, day } = parseFerieContextFromForm(formData);
   const profile = await requireFerieTrainee();
   const parsed = parseLeaveUpdateForm(formData);
-  requireDateOrderOrRedirect(parsed.startDate, parsed.endDate);
-  const requestType = normalizeLeaveRequestType(parsed.requestType);
+  requireDateOrderOrRedirect(parsed.startDate, parsed.endDate, { month, day });
 
   const supabase = await createServerSupabaseClient();
 
-  const { data: existing, error: existingError } = await supabase
+  const { data: existingRaw, error: existingError } = await supabase
     .from("leave_requests")
     .select("id, user_id, status")
     .eq("id", parsed.id)
     .single();
 
-  if (existingError || !existing) {
+  if (existingError || !existingRaw) {
     redirectToFerieWithError("Richiesta non trovata o non accessibile.");
   }
+
+  const existing = mapLeaveRequestFromDb(existingRaw as Record<string, unknown>);
 
   if (existing.user_id !== profile.id) {
     redirectToFerieWithError("Non puoi modificare richieste di altri utenti.");
@@ -245,20 +254,22 @@ export async function updateLeaveRequestAction(formData: FormData) {
     endDate: parsed.endDate,
     month,
     day,
-    excludeId: parsed.id,
+    excludeRequestId: parsed.id,
   });
 
   const { data: updated, error } = await supabase
     .from("leave_requests")
-    .update({
-      request_type: requestType,
-      start_date: parsed.startDate,
-      end_date: parsed.endDate,
-      reason: parsed.reason?.trim() ? parsed.reason.trim() : null,
-    })
+    .update(
+      mapLeaveRequestToDbUpdate({
+        requestType: parsed.requestType,
+        startDate: parsed.startDate,
+        endDate: parsed.endDate,
+        reason: parsed.reason,
+      }),
+    )
     .eq("id", parsed.id)
     .eq("user_id", profile.id)
-    .eq("status", "pending")
+    .eq("status", "in_attesa")
     .select("id");
 
   if (error) {
@@ -290,7 +301,7 @@ export async function approveLeaveRequestAction(formData: FormData) {
     redirectToFerieWithError("Richiesta non trovata o non accessibile.", { month, day });
   }
 
-  if (existing.status !== "pending") {
+  if (mapLeaveRequestFromDb(existing as Record<string, unknown>).status !== "pending") {
     redirectToFerieWithError("Puoi approvare solo richieste ancora in attesa.", { month, day });
   }
 
@@ -298,14 +309,15 @@ export async function approveLeaveRequestAction(formData: FormData) {
 
   const { data: updated, error } = await supabase
     .from("leave_requests")
-    .update({
-      status: "approved",
-      reviewed_by: profile.id,
-      reviewed_at: new Date().toISOString(),
-      ...(reviewNote ? { review_note: reviewNote } : {}),
-    })
+    .update(
+      mapLeaveRequestToDbReview({
+        reviewerId: profile.id,
+        status: "approvato",
+        note: reviewNote ?? null,
+      }),
+    )
     .eq("id", parsed.id)
-    .eq("status", "pending")
+    .eq("status", "in_attesa")
     .select("id");
 
   if (error) {
@@ -337,7 +349,7 @@ export async function rejectLeaveRequestAction(formData: FormData) {
     redirectToFerieWithError("Richiesta non trovata o non accessibile.", { month, day });
   }
 
-  if (existing.status !== "pending") {
+  if (mapLeaveRequestFromDb(existing as Record<string, unknown>).status !== "pending") {
     redirectToFerieWithError("Puoi rifiutare solo richieste ancora in attesa.", { month, day });
   }
 
@@ -345,14 +357,15 @@ export async function rejectLeaveRequestAction(formData: FormData) {
 
   const { data: updated, error } = await supabase
     .from("leave_requests")
-    .update({
-      status: "rejected",
-      reviewed_by: profile.id,
-      reviewed_at: new Date().toISOString(),
-      ...(reviewNote ? { review_note: reviewNote } : {}),
-    })
+    .update(
+      mapLeaveRequestToDbReview({
+        reviewerId: profile.id,
+        status: "rifiutato",
+        note: reviewNote ?? null,
+      }),
+    )
     .eq("id", parsed.id)
-    .eq("status", "pending")
+    .eq("status", "in_attesa")
     .select("id");
 
   if (error) {
@@ -374,15 +387,17 @@ export async function cancelLeaveRequestAction(formData: FormData) {
 
   const supabase = await createServerSupabaseClient();
 
-  const { data: existing, error: existingError } = await supabase
+  const { data: existingRaw, error: existingError } = await supabase
     .from("leave_requests")
     .select("id, user_id, status")
     .eq("id", parsed.id)
     .single();
 
-  if (existingError || !existing) {
+  if (existingError || !existingRaw) {
     redirectToFerieWithError("Richiesta non trovata o non accessibile.", { month, day });
   }
+
+  const existing = mapLeaveRequestFromDb(existingRaw as Record<string, unknown>);
 
   if (existing.user_id !== profile.id) {
     redirectToFerieWithError("Non puoi annullare richieste di altri utenti.", { month, day });
@@ -394,14 +409,10 @@ export async function cancelLeaveRequestAction(formData: FormData) {
 
   const { data: updated, error } = await supabase
     .from("leave_requests")
-    .update({
-      status: "cancelled",
-      reviewed_by: null,
-      reviewed_at: null,
-    })
+    .update(mapLeaveRequestToDbCancel(new Date().toISOString()))
     .eq("id", parsed.id)
     .eq("user_id", profile.id)
-    .eq("status", "pending")
+    .eq("status", "in_attesa")
     .select("id");
 
   if (error) {

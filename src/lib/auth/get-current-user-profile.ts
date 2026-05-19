@@ -46,7 +46,6 @@ type AppSection =
   | "dashboard"
   | "profilo"
   | "turni"
-  | "turni-ferie"
   | "ferie"
   | "universita"
   | "archivio"

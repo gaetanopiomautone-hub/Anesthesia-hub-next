@@ -4,7 +4,6 @@ type AppSection =
   | "dashboard"
   | "profilo"
   | "turni"
-  | "turni-ferie"
   | "ferie"
   | "universita"
   | "archivio"
@@ -13,9 +12,9 @@ type AppSection =
   | "admin";
 
 const permissionMatrix: Record<AppRole, AppSection[]> = {
-  specializzando: ["dashboard", "profilo", "turni", "turni-ferie", "ferie", "universita", "archivio", "logbook", "report"],
-  tutor: ["dashboard", "profilo", "turni", "turni-ferie", "ferie", "universita", "archivio", "logbook", "report"],
-  admin: ["dashboard", "profilo", "turni", "turni-ferie", "ferie", "universita", "archivio", "logbook", "report", "admin"],
+  specializzando: ["dashboard", "profilo", "turni", "ferie", "universita"],
+  tutor: ["dashboard", "profilo", "turni", "ferie", "universita", "archivio", "logbook", "report"],
+  admin: ["dashboard", "profilo", "turni", "ferie", "universita", "archivio", "logbook", "report", "admin"],
 };
 
 export function canAccess(role: AppRole, section: AppSection) {

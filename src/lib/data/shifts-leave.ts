@@ -7,6 +7,7 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { profileDisplayName } from "@/lib/utils/profile-display";
 
 import { formatDateItalian, leaveTypeLabelItalian, type LeaveRequestStatus, type LeaveRequestType } from "@/lib/data/leave-requests";
+import { mapLeaveRequestFromDb } from "@/lib/domain/leave-request-db";
 
 export type ShiftKind = "mattina" | "pomeriggio" | "giornaliero" | "notte" | "guardia" | "reperibilita";
 
@@ -269,16 +270,7 @@ async function listLeavesOverlappingMonth(params: { monthStart: string; monthEnd
   const supabase = await createServerSupabaseClient();
   let query = supabase
     .from("leave_requests")
-    .select(
-      `
-      id,
-      user_id,
-      request_type,
-      start_date,
-      end_date,
-      status
-    `,
-    )
+    .select("id, user_id, request_type, start_date, end_date, status")
     .lte("start_date", params.monthEnd)
     .gte("end_date", params.monthStart)
     .order("start_date", { ascending: true });
@@ -294,16 +286,14 @@ async function listLeavesOverlappingMonth(params: { monthStart: string; monthEnd
   }
 
   const rows = (data ?? []).map((raw) => {
-    const row = raw as Omit<LeaveMonthRow, "requester">;
-
+    const mapped = mapLeaveRequestFromDb(raw as Record<string, unknown>);
     return {
-      ...row,
-      id: String(row.id ?? ""),
-      user_id: String(row.user_id ?? ""),
-      start_date: String(row.start_date ?? "").trim(),
-      end_date: String(row.end_date ?? "").trim(),
-      request_type: row.request_type as LeaveRequestType,
-      status: row.status as LeaveRequestStatus,
+      id: mapped.id,
+      user_id: mapped.user_id,
+      start_date: mapped.start_date,
+      end_date: mapped.end_date,
+      request_type: mapped.request_type,
+      status: mapped.status,
       requester: null,
     } satisfies LeaveMonthRow;
   });
