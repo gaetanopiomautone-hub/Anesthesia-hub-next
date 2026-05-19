@@ -39,9 +39,22 @@ describe("buildTraineeWeeklyPlanningSummaries", () => {
   const name = (id: string) => (id === "user-1" ? "Rossi" : id);
 
   it("sala mattina + sala pomeriggio stesso giorno = 12h assistenziali", () => {
+    const area = { id: "area-orto", code: "ORTO", name: "Ortopedia", is_active: true };
     const items = [
-      baseShift({ id: "s1", period: "mattina" }),
-      baseShift({ id: "s2", period: "pomeriggio" }),
+      baseShift({
+        id: "s1",
+        period: "mattina",
+        clinical_area_id: area.id,
+        clinical_area: area,
+        room_name: "Sala 2",
+      }),
+      baseShift({
+        id: "s2",
+        period: "pomeriggio",
+        clinical_area_id: area.id,
+        clinical_area: area,
+        room_name: "Sala 2",
+      }),
     ];
     const rows = buildTraineeWeeklyPlanningSummaries({
       items,
@@ -55,8 +68,26 @@ describe("buildTraineeWeeklyPlanningSummaries", () => {
     });
     const day = rows[0]!.weeks.flatMap((w) => w.days).find((d) => d.date === "2026-05-11");
     expect(day?.assistentialDayHours).toBe(12);
-    expect(day?.morningItems.some((e) => e.label.includes("Sala Orto"))).toBe(true);
-    expect(day?.afternoonItems.some((e) => e.label.includes("Sala Orto"))).toBe(true);
+    expect(day?.morningItems[0]?.locationLabel).toBe("Ortopedia · Sala 2");
+    expect(day?.morningItems[0]?.locationPrimary).toBe("Ortopedia");
+    expect(day?.morningItems[0]?.locationSecondary).toBe("Sala 2");
+    expect(day?.afternoonItems[0]?.locationLabel).toBe("Ortopedia · Sala 2");
+  });
+
+  it("senza area clinica usa solo room_name in locationLabel", () => {
+    const items = [baseShift({ id: "s1", room_name: "Sala Orto" })];
+    const rows = buildTraineeWeeklyPlanningSummaries({
+      items,
+      leaves: [],
+      blocks: [],
+      conflicts: [],
+      nameById: name,
+      monthStart,
+      monthEnd,
+      userIds: ["user-1"],
+    });
+    const day = rows[0]!.weeks.flatMap((w) => w.days).find((d) => d.date === "2026-05-11");
+    expect(day?.morningItems[0]?.locationLabel).toBe("Sala Orto");
   });
 
   it("lezione pomeriggio non conta ore; mattina sala sì", () => {

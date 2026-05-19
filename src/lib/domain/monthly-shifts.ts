@@ -113,6 +113,36 @@ export type ShiftItemRow = {
   updated_at: string;
 };
 
+/** Area clinica (primaria) e sala/attività (secondaria) per etichette planning. */
+export function shiftItemLocationParts(
+  item: Pick<ShiftItemRow, "clinical_area" | "specialty" | "assignment_location" | "room_name" | "label">,
+): { primary: string; secondary: string | null } {
+  const area = item.clinical_area?.name?.trim() || item.specialty?.trim() || null;
+  const room =
+    item.assignment_location?.name?.trim() ||
+    item.room_name?.trim() ||
+    null;
+  if (area && room && room !== area) {
+    return { primary: area, secondary: room };
+  }
+  if (area) {
+    return { primary: area, secondary: null };
+  }
+  if (room) {
+    return { primary: room, secondary: null };
+  }
+  const fallback = item.label?.trim();
+  return { primary: fallback || "—", secondary: null };
+}
+
+/** Es. «Ortopedia · Sala 2» — area clinica prima, sala/attività dopo. */
+export function formatShiftItemPlanningLocation(
+  item: Pick<ShiftItemRow, "clinical_area" | "specialty" | "assignment_location" | "room_name" | "label">,
+): string {
+  const { primary, secondary } = shiftItemLocationParts(item);
+  return secondary ? `${primary} · ${secondary}` : primary;
+}
+
 export function monthlyShiftPlanStatusLabelItalian(s: MonthlyShiftPlanStatus) {
   switch (s) {
     case "draft":

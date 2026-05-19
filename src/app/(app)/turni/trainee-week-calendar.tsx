@@ -18,13 +18,9 @@ import { cn } from "@/lib/utils/cn";
 const WEEKDAY_LABELS = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"] as const;
 
 function entryShortLabel(entry: TraineeWeekSummaryEntry): string {
-  const raw = entry.label.trim();
-  const parts = raw.split("·").map((p) => p.trim()).filter(Boolean);
-  if (entry.category === "assistential" && parts.length >= 3) {
-    return parts.slice(2).join(" · ") || parts[parts.length - 1]!;
-  }
+  if (entry.locationLabel) return entry.locationLabel;
   if (entry.category === "reper") return "Reperibilità";
-  return parts[0] ?? raw;
+  return entry.label.trim();
 }
 
 function hasCategory(

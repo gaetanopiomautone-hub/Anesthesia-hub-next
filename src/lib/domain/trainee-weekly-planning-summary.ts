@@ -16,7 +16,12 @@ import {
   shiftDateInInclusiveLeaveRange,
 } from "@/lib/domain/planning-assistential-conflicts";
 import type { ShiftItemRow } from "@/lib/domain/monthly-shifts";
-import { shiftItemKindLabelItalian, shiftItemPeriodLabelItalian } from "@/lib/domain/monthly-shifts";
+import {
+  formatShiftItemPlanningLocation,
+  shiftItemKindLabelItalian,
+  shiftItemLocationParts,
+  shiftItemPeriodLabelItalian,
+} from "@/lib/domain/monthly-shifts";
 import {
   ASSISTENTIAL_HALF_DAY_HOURS,
   WEEKLY_ASSISTENTIAL_CAP_HOURS,
@@ -39,6 +44,10 @@ export type TraineeWeekSummaryEntry = {
   category: TraineeWeekSummaryEntryCategory;
   label: string;
   shiftItemId?: string;
+  /** Area clinica + sala (es. Ortopedia · Sala 2) per celle compatte. */
+  locationLabel?: string;
+  locationPrimary?: string;
+  locationSecondary?: string | null;
   /** Mezze giornate assistenziali (0, 1, 2) — solo `assistential` e turni sala/amb. */
   assistentialHalfDays: number;
 };
@@ -87,12 +96,20 @@ function uniqueStrings(values: string[]): string[] {
 }
 
 function shiftDisplayLabel(item: ShiftItemRow): string {
-  const loc =
-    item.assignment_location?.name?.trim() ||
-    item.room_name?.trim() ||
-    item.label?.trim() ||
-    "—";
+  const loc = formatShiftItemPlanningLocation(item);
   return `${shiftItemKindLabelItalian(item.kind)} · ${shiftItemPeriodLabelItalian(item.period)} · ${loc}`;
+}
+
+function shiftEntryLocationFields(item: ShiftItemRow): Pick<
+  TraineeWeekSummaryEntry,
+  "locationLabel" | "locationPrimary" | "locationSecondary"
+> {
+  const parts = shiftItemLocationParts(item);
+  return {
+    locationLabel: formatShiftItemPlanningLocation(item),
+    locationPrimary: parts.primary,
+    locationSecondary: parts.secondary,
+  };
 }
 
 function blockCategory(kind: string): TraineeWeekSummaryEntryCategory {
@@ -177,6 +194,7 @@ function buildDayForUser(params: {
         id: `shift-${item.id}`,
         category: "reper",
         label: `Reperibilità · ${shiftItemPeriodLabelItalian(item.period)}`,
+        ...shiftEntryLocationFields(item),
         shiftItemId: item.id,
         assistentialHalfDays: 0,
       });
@@ -188,6 +206,7 @@ function buildDayForUser(params: {
       category: "assistential",
       label: shiftDisplayLabel(item),
       shiftItemId: item.id,
+      ...shiftEntryLocationFields(item),
       assistentialHalfDays: half,
     };
     if (item.period === "giornata") {

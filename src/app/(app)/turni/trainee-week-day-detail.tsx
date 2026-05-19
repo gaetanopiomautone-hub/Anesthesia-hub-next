@@ -27,6 +27,30 @@ function entryTone(cat: TraineeWeekSummaryEntryCategory): string {
   }
 }
 
+function EntryBody({ entry }: { entry: TraineeWeekSummaryEntry }) {
+  if (entry.category === "assistential" && entry.locationPrimary) {
+    return (
+      <>
+        <p className="font-medium leading-snug">{entry.locationPrimary}</p>
+        {entry.locationSecondary ? (
+          <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{entry.locationSecondary}</p>
+        ) : null}
+      </>
+    );
+  }
+  if (entry.category === "reper") {
+    return (
+      <>
+        <p className="font-medium leading-snug">Reperibilità</p>
+        {entry.locationLabel ? (
+          <p className="mt-0.5 text-xs leading-snug text-muted-foreground">{entry.locationLabel}</p>
+        ) : null}
+      </>
+    );
+  }
+  return <span className="leading-snug">{entry.label}</span>;
+}
+
 function EntryList({ title, entries }: { title: string; entries: TraineeWeekSummaryEntry[] }) {
   if (entries.length === 0) return null;
   return (
@@ -35,7 +59,7 @@ function EntryList({ title, entries }: { title: string; entries: TraineeWeekSumm
       <ul className="list-none space-y-1">
         {entries.map((e) => (
           <li key={e.id} className={cn("rounded-md border border-border/70 bg-muted/20 px-2.5 py-2 text-sm", entryTone(e.category))}>
-            {e.label}
+            <EntryBody entry={e} />
           </li>
         ))}
       </ul>
