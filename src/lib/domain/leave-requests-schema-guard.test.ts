@@ -90,9 +90,11 @@ describe("leave_requests schema guard (static)", () => {
     }
 
     expect(insertKeys).toContain("user_id");
+    expect(insertKeys).toContain("reason");
     expect(insertKeys).toContain("reviewed_by");
     expect(cancelKeys).toContain("cancelled_at");
     expect(reviewKeys).toContain("reviewed_at");
+    expect(insertKeys).not.toContain("note");
   });
 
   it("policies.sql defines expected RLS policies for leave_requests", () => {
@@ -111,6 +113,7 @@ describe("leave_requests schema guard (static)", () => {
   it("schema.sql documents real columns and integrity constraint", () => {
     const snippet = readLeaveRequestsSchemaSqlSnippet();
     expect(snippet).toContain("user_id uuid");
+    expect(snippet).toContain("reason text");
     expect(snippet).toContain("reviewed_by uuid");
     expect(snippet).toContain("reviewed_at timestamptz");
     expect(snippet).toContain("cancelled_at timestamptz");

@@ -12,7 +12,7 @@ export const LEAVE_REQUESTS_COLUMNS = [
   "start_date",
   "end_date",
   "status",
-  "note",
+  "reason",
   "reviewed_by",
   "reviewed_at",
   "cancelled_at",
@@ -30,7 +30,7 @@ export const LEAVE_REQUESTS_SELECT_COLUMNS = [
   "start_date",
   "end_date",
   "status",
-  "note",
+  "reason",
   "reviewed_by",
   "reviewed_at",
   "cancelled_at",
@@ -68,6 +68,7 @@ export const LEAVE_REQUESTS_FORBIDDEN_LEGACY_COLUMNS = [
   "requester_profile_id",
   "approved_by",
   "approved_at",
+  "note",
 ] as const;
 
 export const LEAVE_REQUESTS_FORBIDDEN_LEGACY_MARKERS = [

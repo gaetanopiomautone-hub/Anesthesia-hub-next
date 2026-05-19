@@ -59,7 +59,7 @@ values
   ('2026-04-15', 'mattina', '00000000-0000-0000-0000-000000000102', '10000000-0000-0000-0000-000000000001', '10000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000002'),
   ('2026-04-16', 'notte', '00000000-0000-0000-0000-000000000103', '10000000-0000-0000-0000-000000000002', '10000000-0000-0000-0000-000000000004', '10000000-0000-0000-0000-000000000003');
 
-insert into public.leave_requests (user_id, request_type, start_date, end_date, status, note, reviewed_by, reviewed_at, cancelled_at)
+insert into public.leave_requests (user_id, request_type, start_date, end_date, status, reason, reviewed_by, reviewed_at, cancelled_at)
 values
   ('10000000-0000-0000-0000-000000000001', 'ferie', '2026-05-11', '2026-05-15', 'in_attesa', 'Richiesta ferie gia'' concordata con il tutor', null, null, null),
   ('10000000-0000-0000-0000-000000000001', 'desiderata', '2026-06-02', '2026-06-02', 'approvato', 'Preferenza per attivita'' di sala operatoria', '10000000-0000-0000-0000-000000000003', now(), null);

@@ -3,7 +3,7 @@ import { LEAVE_REQUESTS_ACTIVE_OVERLAP_STATUSES } from "@/lib/domain/leave-reque
 
 /**
  * Schema reale `leave_requests` (Supabase remoto):
- * user_id, reviewed_by, reviewed_at, cancelled_at, note, status (in_attesa|approvato|rifiutato|annullato).
+ * user_id, reviewed_by, reviewed_at, cancelled_at, reason, status (in_attesa|approvato|rifiutato|annullato).
  */
 export type LeaveRequestDbRow = {
   id: string;
@@ -12,7 +12,7 @@ export type LeaveRequestDbRow = {
   start_date: string;
   end_date: string;
   status: string;
-  note: string | null;
+  reason: string | null;
   reviewed_by: string | null;
   reviewed_at: string | null;
   cancelled_at: string | null;
@@ -73,6 +73,9 @@ export function mapLeaveTypeToDb(type: string): "ferie" | "desiderata" {
 }
 
 export function mapLeaveRequestFromDb(raw: Record<string, unknown>): LeaveRequestRow {
+  const reason =
+    raw.reason != null ? String(raw.reason) : raw.note != null ? String(raw.note) : null;
+
   return {
     id: String(raw.id ?? ""),
     user_id: String(raw.user_id ?? "").trim(),
@@ -80,7 +83,7 @@ export function mapLeaveRequestFromDb(raw: Record<string, unknown>): LeaveReques
     start_date: String(raw.start_date ?? "").trim().slice(0, 10),
     end_date: String(raw.end_date ?? "").trim().slice(0, 10),
     status: mapLeaveStatusFromDb(String(raw.status ?? "")),
-    reason: raw.note != null ? String(raw.note) : raw.reason != null ? String(raw.reason) : null,
+    reason,
     reviewed_by: raw.reviewed_by != null ? String(raw.reviewed_by) : null,
     reviewed_at: raw.reviewed_at != null ? String(raw.reviewed_at) : null,
     review_note: null,
@@ -102,7 +105,7 @@ export function mapLeaveRequestToDbInsert(payload: {
     start_date: payload.startDate,
     end_date: payload.endDate,
     status: "in_attesa" as const,
-    note: payload.reason?.trim() ? payload.reason.trim() : null,
+    reason: payload.reason?.trim() ? payload.reason.trim() : null,
     reviewed_by: null,
     reviewed_at: null,
     cancelled_at: null,
@@ -121,13 +124,13 @@ export function mapLeaveRequestToDbCancel(cancelledAtIso: string) {
 export function mapLeaveRequestToDbReview(payload: {
   reviewerId: string;
   status: "approvato" | "rifiutato";
-  note?: string | null;
+  reason?: string | null;
 }) {
   return {
     status: payload.status,
     reviewed_by: payload.reviewerId,
     reviewed_at: new Date().toISOString(),
-    ...(payload.note ? { note: payload.note } : {}),
+    ...(payload.reason ? { reason: payload.reason } : {}),
   };
 }
 
@@ -141,7 +144,7 @@ export function mapLeaveRequestToDbUpdate(payload: {
     request_type: mapLeaveTypeToDb(payload.requestType),
     start_date: payload.startDate,
     end_date: payload.endDate,
-    note: payload.reason?.trim() ? payload.reason.trim() : null,
+    reason: payload.reason?.trim() ? payload.reason.trim() : null,
   };
 }
 

@@ -44,7 +44,7 @@ export type Database = {
           start_date: string;
           end_date: string;
           status: string;
-          note: string | null;
+          reason: string | null;
           reviewed_by: string | null;
           reviewed_at: string | null;
           cancelled_at: string | null;

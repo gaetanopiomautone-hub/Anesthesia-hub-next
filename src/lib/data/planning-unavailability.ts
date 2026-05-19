@@ -9,7 +9,12 @@ function mapLeaveRaw(raw: Record<string, unknown>): PlanningLeaveRangeInput {
     startDate: String(raw.start_date ?? "").trim().slice(0, 10),
     endDate: String(raw.end_date ?? "").trim().slice(0, 10),
     status: String(raw.status ?? ""),
-    note: raw.note != null ? String(raw.note) : null,
+    note:
+      raw.reason != null
+        ? String(raw.reason)
+        : raw.note != null
+          ? String(raw.note)
+          : null,
   };
 }
 

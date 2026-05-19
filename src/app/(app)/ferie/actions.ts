@@ -313,7 +313,7 @@ export async function approveLeaveRequestAction(formData: FormData) {
       mapLeaveRequestToDbReview({
         reviewerId: profile.id,
         status: "approvato",
-        note: reviewNote ?? null,
+        reason: reviewNote ?? null,
       }),
     )
     .eq("id", parsed.id)
@@ -361,7 +361,7 @@ export async function rejectLeaveRequestAction(formData: FormData) {
       mapLeaveRequestToDbReview({
         reviewerId: profile.id,
         status: "rifiutato",
-        note: reviewNote ?? null,
+        reason: reviewNote ?? null,
       }),
     )
     .eq("id", parsed.id)

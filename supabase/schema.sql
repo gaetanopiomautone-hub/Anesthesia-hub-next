@@ -232,7 +232,7 @@ create table if not exists public.leave_requests (
   start_date date not null,
   end_date date not null,
   status public.approval_status not null default 'in_attesa',
-  note text,
+  reason text,
   reviewed_by uuid references public.profiles (id) on delete set null,
   reviewed_at timestamptz,
   cancelled_at timestamptz,

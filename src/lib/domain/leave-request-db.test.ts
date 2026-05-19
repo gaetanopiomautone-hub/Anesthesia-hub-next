@@ -18,7 +18,7 @@ describe("leave-request-db", () => {
       start_date: "2026-05-11",
       end_date: "2026-05-15",
       status: "in_attesa",
-      note: "test",
+      reason: "test",
       reviewed_by: null,
       reviewed_at: null,
       cancelled_at: null,
@@ -45,7 +45,7 @@ describe("leave-request-db", () => {
       start_date: "2026-05-01",
       end_date: "2026-05-03",
       status: "in_attesa",
-      note: "ferie",
+      reason: "ferie",
       reviewed_by: null,
       reviewed_at: null,
       cancelled_at: null,
@@ -66,17 +66,17 @@ describe("leave-request-db", () => {
     });
   });
 
-  it("maps review payload with reviewed_by/at", () => {
+  it("maps review payload with reviewed_by/at and reason", () => {
     expect(
       mapLeaveRequestToDbReview({
         reviewerId: "admin-1",
         status: "approvato",
-        note: "ok",
+        reason: "ok",
       }),
     ).toMatchObject({
       status: "approvato",
       reviewed_by: "admin-1",
-      note: "ok",
+      reason: "ok",
     });
   });
 
@@ -88,7 +88,7 @@ describe("leave-request-db", () => {
       start_date: "2026-07-15",
       end_date: "2026-07-15",
       status: "annullato",
-      note: null,
+      reason: null,
       reviewed_by: null,
       reviewed_at: null,
       cancelled_at: "2026-07-15T12:00:00.000Z",
