@@ -4,8 +4,10 @@ import type { ShiftItemRow } from "@/lib/domain/monthly-shifts";
 
 import { buildPlanningAssistentialConflicts } from "./planning-assistential-conflicts";
 import {
+  buildTraineePlanningWeekForUser,
   buildTraineeWeeklyPlanningSummaries,
   collectTraineeWeeklySummaryUserIds,
+  traineePlanningWeekHasContent,
 } from "./trainee-weekly-planning-summary";
 
 function baseShift(overrides: Partial<ShiftItemRow>): ShiftItemRow {
@@ -241,6 +243,23 @@ describe("buildTraineeWeeklyPlanningSummaries", () => {
     expect(day?.conflictMessages.some((m) => /ferie/i.test(m))).toBe(true);
     const week = rows[0]!.weeks.find((w) => w.days.some((d) => d.date === "2026-05-20"));
     expect(week?.weekHasConflicts).toBe(true);
+  });
+});
+
+describe("buildTraineePlanningWeekForUser", () => {
+  it("settimana vuota senza contenuto", () => {
+    const week = buildTraineePlanningWeekForUser({
+      userId: "user-1",
+      weekStart: "2026-05-11",
+      monthStart: "2026-05-01",
+      monthEnd: "2026-05-31",
+      items: [],
+      leaves: [],
+      blocks: [],
+      conflicts: [],
+    });
+    expect(week.days).toHaveLength(7);
+    expect(traineePlanningWeekHasContent(week)).toBe(false);
   });
 });
 

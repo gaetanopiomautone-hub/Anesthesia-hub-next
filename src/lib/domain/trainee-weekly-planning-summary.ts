@@ -355,6 +355,32 @@ function buildWeekForUser(params: {
   };
 }
 
+/** Una settimana lun–dom per un solo specializzando (es. dashboard «La mia settimana»). */
+export function buildTraineePlanningWeekForUser(params: {
+  userId: string;
+  weekStart: string;
+  monthStart: string;
+  monthEnd: string;
+  items: ShiftItemRow[];
+  leaves: PlanningLeaveRangeInput[];
+  blocks: PlanningBlockInput[];
+  conflicts: PlanningAssistentialConflict[];
+}): TraineeWeeklyPlanningWeek {
+  return buildWeekForUser(params);
+}
+
+export function traineePlanningWeekHasContent(week: TraineeWeeklyPlanningWeek): boolean {
+  if (week.reperCount > 0) return true;
+  return week.days.some(
+    (d) =>
+      d.morningItems.length > 0 ||
+      d.afternoonItems.length > 0 ||
+      d.reperItems.length > 0 ||
+      d.fullDayItems.length > 0 ||
+      d.conflictMessages.length > 0,
+  );
+}
+
 /**
  * Costruisce un riepilogo per ciascuno `userId` in `userIds` (tipicamente da
  * {@link collectTraineeWeeklySummaryUserIds}).

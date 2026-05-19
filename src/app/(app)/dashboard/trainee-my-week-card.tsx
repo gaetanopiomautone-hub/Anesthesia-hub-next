@@ -15,10 +15,7 @@ export function TraineeMyWeekCard({ payload }: { payload: TraineeDashboardWeekPa
   const currentWeekStart = currentWeekStartMonday();
 
   return (
-    <Card
-      title="La mia settimana"
-      description={payload.weekLabel}
-    >
+    <Card title="La mia settimana" description={payload.weekLabel}>
       {!payload.planAvailable ? (
         <div className="space-y-2 text-sm text-muted-foreground">
           <p>Nessun planning mensile attivo per questo mese.</p>
@@ -28,15 +25,17 @@ export function TraineeMyWeekCard({ payload }: { payload: TraineeDashboardWeekPa
             </Link>
           </p>
         </div>
-      ) : payload.week ? (
-        <TraineeWeekCalendar week={payload.week} highlightWeekStart={currentWeekStart} />
+      ) : !payload.hasWeekContent || !payload.week ? (
+        <div className="space-y-2 text-sm text-muted-foreground">
+          <p>Nessun turno previsto questa settimana.</p>
+          <p>
+            <Link href="/turni" className="text-primary underline-offset-2 hover:underline">
+              Vedi il planning del mese
+            </Link>
+          </p>
+        </div>
       ) : (
-        <p className="text-sm text-muted-foreground">
-          Nessun dato per la settimana corrente nel planning del mese.{" "}
-          <Link href="/turni" className="text-primary underline-offset-2 hover:underline">
-            Vedi il mese completo
-          </Link>
-        </p>
+        <TraineeWeekCalendar week={payload.week} highlightWeekStart={currentWeekStart} />
       )}
     </Card>
   );

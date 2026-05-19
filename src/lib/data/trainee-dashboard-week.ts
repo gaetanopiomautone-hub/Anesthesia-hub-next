@@ -5,7 +5,8 @@ import { getMonthlyShiftPlanByYearMonth, listShiftItemsByPlanId } from "@/lib/da
 import { loadPlanningUnavailabilityForMonth } from "@/lib/data/planning-unavailability";
 import { buildPlanningAssistentialConflicts } from "@/lib/domain/planning-assistential-conflicts";
 import {
-  buildTraineeWeeklyPlanningSummaries,
+  buildTraineePlanningWeekForUser,
+  traineePlanningWeekHasContent,
   type TraineeWeeklyPlanningWeek,
 } from "@/lib/domain/trainee-weekly-planning-summary";
 import { formatWeekRangeItalian, weekRangeMondaySunday } from "@/lib/domain/weekly-assistential-hours";
@@ -16,6 +17,8 @@ export type TraineeDashboardWeekPayload = {
   monthEnd: string;
   weekLabel: string;
   planAvailable: boolean;
+  /** True se la settimana corrente ha almeno un turno/blocco/conflitto per l’utente. */
+  hasWeekContent: boolean;
 };
 
 export async function loadTraineeDashboardCurrentWeek(
@@ -24,16 +27,17 @@ export async function loadTraineeDashboardCurrentWeek(
   if (profile.role !== "specializzando") return null;
 
   const today = new Date();
+  const todayYmd = format(today, "yyyy-MM-dd");
   const y = today.getFullYear();
   const m = today.getMonth() + 1;
   const monthStart = format(startOfMonth(today), "yyyy-MM-dd");
   const monthEnd = format(endOfMonth(today), "yyyy-MM-dd");
-  const { weekStart } = weekRangeMondaySunday(format(today, "yyyy-MM-dd"));
-  const weekLabel = formatWeekRangeItalian(weekStart, weekRangeMondaySunday(weekStart).weekEnd);
+  const { weekStart, weekEnd } = weekRangeMondaySunday(todayYmd);
+  const weekLabel = formatWeekRangeItalian(weekStart, weekEnd);
 
   const plan = await getMonthlyShiftPlanByYearMonth({ year: y, month: m });
   if (!plan) {
-    return { week: null, monthStart, monthEnd, weekLabel, planAvailable: false };
+    return { week: null, monthStart, monthEnd, weekLabel, planAvailable: false, hasWeekContent: false };
   }
 
   const items = await listShiftItemsByPlanId(plan.id);
@@ -56,18 +60,23 @@ export async function loadTraineeDashboardCurrentWeek(
     nameById,
   });
 
-  const rows = buildTraineeWeeklyPlanningSummaries({
+  const week = buildTraineePlanningWeekForUser({
+    userId: profile.id,
+    weekStart,
+    monthStart,
+    monthEnd,
     items,
     leaves,
     blocks,
     conflicts,
-    nameById,
-    monthStart,
-    monthEnd,
-    userIds: [profile.id],
   });
 
-  const week = rows[0]?.weeks.find((w) => w.weekStart === weekStart) ?? null;
-
-  return { week, monthStart, monthEnd, weekLabel, planAvailable: true };
+  return {
+    week,
+    monthStart,
+    monthEnd,
+    weekLabel,
+    planAvailable: true,
+    hasWeekContent: traineePlanningWeekHasContent(week),
+  };
 }
