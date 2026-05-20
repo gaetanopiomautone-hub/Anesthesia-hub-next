@@ -1,11 +1,20 @@
 "use client";
 
 import type { LeaveRequestRow } from "@/lib/domain/leave-request-shared";
+import {
+  buildCalendarMarkersForDay,
+  CALENDAR_EVENT_BORDER,
+  CALENDAR_STATUS_PILL,
+  calendarStatusPillLabel,
+  type CalendarMarker,
+  type FerieCalendarBlock,
+} from "@/lib/domain/leave-calendar-markers";
 import { formatYmd, isValidYearMonth, parseYmd, toLocalDateFromYmd } from "@/lib/dates/ymd";
 
 type MonthCalendarProps = {
   yearMonth: string;
   leaves: LeaveRequestRow[];
+  blocks: FerieCalendarBlock[];
   selectedDate: string | null;
   onSelectDate: (ymd: string) => void;
 };
@@ -31,37 +40,34 @@ function getMonthGrid(yearMonth: string) {
   return cells;
 }
 
-function hasOverlapDay(leave: LeaveRequestRow, ymd: string) {
-  return leave.start_date <= ymd && leave.end_date >= ymd;
-}
-
-type MarkerKey = "pending" | "approved" | "rejected";
-
-function markersForDay(leaves: LeaveRequestRow[], ymd: string): Record<MarkerKey, number> {
-  const markers: Record<MarkerKey, number> = { pending: 0, approved: 0, rejected: 0 };
-  for (const leave of leaves) {
-    if (leave.status === "cancelled") continue;
-    if (!hasOverlapDay(leave, ymd)) continue;
-    if (leave.status === "pending") markers.pending += 1;
-    if (leave.status === "approved") markers.approved += 1;
-    if (leave.status === "rejected") markers.rejected += 1;
+function MarkerChip({ marker }: { marker: CalendarMarker }) {
+  const border = CALENDAR_EVENT_BORDER[marker.kind];
+  if (marker.kind === "leave" && marker.status !== "cancelled") {
+    return (
+      <span
+        className={`inline-flex max-w-full items-center gap-0.5 rounded border px-1 py-0.5 ${border}`}
+        title={`Ferie · ${marker.status}`}
+      >
+        <span className={`rounded px-0.5 text-[8px] font-semibold leading-none ${CALENDAR_STATUS_PILL[marker.status]}`}>
+          {calendarStatusPillLabel(marker.status)}
+        </span>
+      </span>
+    );
   }
-  return markers;
-}
-
-function markerClass(key: MarkerKey) {
-  switch (key) {
-    case "approved":
-      return "bg-green-500";
-    case "rejected":
-      return "bg-red-500";
-    case "pending":
-    default:
-      return "bg-gray-500";
+  if (marker.kind === "congress") {
+    return (
+      <span className={`inline-block h-2.5 w-2.5 shrink-0 rounded-sm border-2 ${border}`} title="Congresso" />
+    );
   }
+  return (
+    <span
+      className={`inline-block h-2.5 w-2.5 shrink-0 rounded-sm border-2 ${border}`}
+      title={marker.title ? `Lezione: ${marker.title}` : "Lezione"}
+    />
+  );
 }
 
-export function MonthCalendar({ yearMonth, leaves, selectedDate, onSelectDate }: MonthCalendarProps) {
+export function MonthCalendar({ yearMonth, leaves, blocks, selectedDate, onSelectDate }: MonthCalendarProps) {
   const cells = getMonthGrid(yearMonth);
 
   return (
@@ -81,10 +87,11 @@ export function MonthCalendar({ yearMonth, leaves, selectedDate, onSelectDate }:
           }
 
           const day = Number(ymd.slice(-2));
-          const markers = markersForDay(leaves, ymd);
-          const keys = (["pending", "approved", "rejected"] as const).filter((k) => markers[k] > 0);
-          const total = markers.pending + markers.approved + markers.rejected;
-
+          const markers = buildCalendarMarkersForDay({ ymd, leaves, blocks }).filter(
+            (m) => m.kind !== "leave" || m.status !== "cancelled",
+          );
+          const displayMarkers = markers.slice(0, 4);
+          const extra = markers.length - displayMarkers.length;
           const isSelected = selectedDate === ymd;
 
           return (
@@ -100,12 +107,12 @@ export function MonthCalendar({ yearMonth, leaves, selectedDate, onSelectDate }:
               ].join(" ")}
             >
               <div className="text-xs font-medium text-foreground">{day}</div>
-              {total > 0 ? (
+              {displayMarkers.length > 0 ? (
                 <div className="mt-2 flex flex-wrap items-center gap-1">
-                  {keys.map((k) => (
-                    <span key={k} className={`inline-block h-2.5 w-2.5 rounded-full ${markerClass(k)}`} title={`${k}: ${markers[k]}`} />
+                  {displayMarkers.map((m) => (
+                    <MarkerChip key={`${m.kind}-${m.id}`} marker={m} />
                   ))}
-                  <span className="ml-1 text-[10px] text-muted-foreground">{total}</span>
+                  {extra > 0 ? <span className="text-[10px] text-muted-foreground">+{extra}</span> : null}
                 </div>
               ) : (
                 <div className="mt-2 text-[10px] text-muted-foreground">—</div>

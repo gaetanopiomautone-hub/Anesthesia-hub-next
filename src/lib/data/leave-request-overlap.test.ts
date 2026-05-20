@@ -20,6 +20,13 @@ describe("leave-request-overlap", () => {
     expect(() => assertValidLeaveDateRange("2026-07-20", "2026-07-10")).toThrow(LeaveDateRangeError);
   });
 
+  it("assertValidLeaveDateRange rejects dates before today", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-20T12:00:00"));
+    expect(() => assertValidLeaveDateRange("2026-05-19", "2026-05-25")).toThrow(/passato/);
+    vi.useRealTimers();
+  });
+
   it("activeLeaveRangesOverlap matches interval semantics", () => {
     expect(activeLeaveRangesOverlap("2026-07-15", "2026-07-15", "2026-07-11", "2026-07-15")).toBe(true);
     expect(activeLeaveRangesOverlap("2026-07-16", "2026-07-20", "2026-07-11", "2026-07-15")).toBe(false);

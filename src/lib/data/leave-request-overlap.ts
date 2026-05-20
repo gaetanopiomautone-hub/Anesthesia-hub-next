@@ -1,6 +1,6 @@
 import type { PostgrestError, SupabaseClient } from "@supabase/supabase-js";
 
-import { compareYmd, parseYmd } from "@/lib/dates/ymd";
+import { compareYmd, formatYmd, parseYmd } from "@/lib/dates/ymd";
 import { hasDateOverlap } from "@/lib/dates/hasDateOverlap";
 import { LEAVE_REQUESTS_ACTIVE_OVERLAP_STATUSES } from "@/lib/domain/leave-requests-db-contract";
 
@@ -39,6 +39,13 @@ export class LeaveDateRangeError extends Error {
 export function assertValidLeaveDateRange(startDate: string, endDate: string): void {
   parseYmd(startDate);
   parseYmd(endDate);
+  const todayYmd = formatYmd(new Date());
+  if (compareYmd(startDate, todayYmd) < 0) {
+    throw new LeaveDateRangeError("La data di inizio non può essere nel passato.");
+  }
+  if (compareYmd(endDate, todayYmd) < 0) {
+    throw new LeaveDateRangeError("La data di fine non può essere nel passato.");
+  }
   if (compareYmd(startDate, endDate) > 0) {
     throw new LeaveDateRangeError();
   }

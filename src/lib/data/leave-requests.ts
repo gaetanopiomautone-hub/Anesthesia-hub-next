@@ -13,6 +13,8 @@ export const LEAVE_SELECT =
 export type ListLeaveRequestsOptions = {
   /** Se impostato, solo richieste che intersecano il mese (`yyyy-MM`). */
   yearMonth?: string;
+  /** Senza filtro mese (es. controllo overlap nel form create). */
+  allInView?: boolean;
 };
 
 export async function listLeaveRequests(profile: CurrentUserProfile, options?: ListLeaveRequestsOptions) {
@@ -24,7 +26,7 @@ export async function listLeaveRequests(profile: CurrentUserProfile, options?: L
     query = query.eq("user_id", profile.id);
   }
 
-  if (options?.yearMonth && isValidYearMonth(options.yearMonth)) {
+  if (!options?.allInView && options?.yearMonth && isValidYearMonth(options.yearMonth)) {
     query = query.lte("start_date", monthEndYmd(options.yearMonth)).gte("end_date", monthStartYmd(options.yearMonth));
   }
 

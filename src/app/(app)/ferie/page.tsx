@@ -8,6 +8,7 @@ import { requireSection } from "@/lib/auth/get-current-user-profile";
 import { normalizeDayInMonth } from "@/lib/dates/day-in-month";
 import { getMonthContext } from "@/lib/dates/getMonthContext";
 import { compareYmd, formatYmd, isValidYearMonth, monthEndYmd, monthStartYmd, toLocalDateFromYmd } from "@/lib/dates/ymd";
+import { listFerieCalendarBlocksForMonth } from "@/lib/data/ferie-calendar-blocks";
 import { LEAVE_OVERLAP_ERROR_MESSAGE } from "@/lib/data/leave-request-overlap";
 import { listLeaveRequests } from "@/lib/data/leave-requests";
 
@@ -28,22 +29,24 @@ type FeriePageProps = {
   }>;
 };
 
-function resolveMonthContext(monthParam?: string) {
-  if (!monthParam || !isValidYearMonth(monthParam)) return null;
-
+/** Contesto calendario (solo visualizzazione mese). */
+function resolveMonthViewLabel(monthParam: string) {
   const startYmd = monthStartYmd(monthParam);
-  const endYmd = monthEndYmd(monthParam);
-  const todayYmd = formatYmd(new Date());
-  const monthLabel = format(toLocalDateFromYmd(startYmd), "MMMM yyyy", { locale: it });
-  const defaultStart = compareYmd(todayYmd, startYmd) >= 0 && compareYmd(todayYmd, endYmd) <= 0 ? todayYmd : startYmd;
+  return format(toLocalDateFromYmd(startYmd), "MMMM yyyy", { locale: it });
+}
 
-  return {
-    monthLabel,
-    minDate: startYmd,
-    maxDate: endYmd,
-    defaultStartDate: defaultStart,
-    defaultEndDate: endYmd,
-  };
+/** Date form: da oggi in avanti, senza limite al mese visualizzato. */
+function resolveLeaveFormDateDefaults(params: { day: string | null; viewMonth: string }) {
+  const todayYmd = formatYmd(new Date());
+  const viewStart = monthStartYmd(params.viewMonth);
+
+  if (params.day && compareYmd(params.day, todayYmd) >= 0) {
+    return { minDate: todayYmd, defaultStartDate: params.day, defaultEndDate: params.day };
+  }
+
+  const defaultStart = compareYmd(viewStart, todayYmd) >= 0 ? viewStart : todayYmd;
+
+  return { minDate: todayYmd, defaultStartDate: defaultStart, defaultEndDate: defaultStart };
 }
 
 export default async function FeriePage({ searchParams }: FeriePageProps) {
@@ -65,8 +68,20 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
   const actionError = params?.error?.trim() ? params.error.trim() : null;
   const actionErrorCode = params?.errorCode?.trim() ? params.errorCode.trim() : null;
   const actionOk = params?.ok?.trim() || null;
-  const monthContext = resolveMonthContext(monthContextBase.yearMonth);
+  const monthViewLabel = resolveMonthViewLabel(monthContextBase.yearMonth);
+  const formDates = resolveLeaveFormDateDefaults({
+    day: normalizedDay,
+    viewMonth: monthContextBase.yearMonth,
+  });
   const rows = await listLeaveRequests(profile, { yearMonth: monthContextBase.yearMonth });
+  const overlapLeaves =
+    profile.role === "specializzando"
+      ? await listLeaveRequests(profile, { allInView: true })
+      : [];
+  const calendarBlocks = await listFerieCalendarBlocksForMonth(
+    monthStartYmd(monthContextBase.yearMonth),
+    monthEndYmd(monthContextBase.yearMonth),
+  );
 
   const canCreate = profile.role === "specializzando";
 
@@ -100,7 +115,7 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
                   ? "Richiesta ferie rifiutata."
                   : actionOk === "cancelled"
                     ? "Richiesta ferie annullata."
-                  : `Richiesta ferie inviata per ${monthContext?.monthLabel ?? "il periodo selezionato"}.`}
+                  : `Richiesta ferie inviata per ${monthViewLabel}.`}
           </div>
         </>
       ) : null}
@@ -113,12 +128,11 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
               action={createLeaveRequestAction}
               month={monthContextBase.yearMonth}
               day={normalizedDay}
-              monthLabel={monthContext?.monthLabel ?? monthContextBase.yearMonth}
-              defaultStartDate={normalizedDay ?? monthContext?.defaultStartDate}
-              defaultEndDate={normalizedDay ?? monthContext?.defaultEndDate}
-              minDate={monthContext?.minDate}
-              maxDate={monthContext?.maxDate}
-              existingLeaves={rows.map((row) => ({
+              monthLabel={monthViewLabel}
+              defaultStartDate={formDates.defaultStartDate}
+              defaultEndDate={formDates.defaultEndDate}
+              minDate={formDates.minDate}
+              existingLeaves={overlapLeaves.map((row) => ({
                 start: row.start_date,
                 end: row.end_date,
                 status: row.status,
@@ -136,6 +150,7 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
           yearMonth={monthContextBase.yearMonth}
           initialSelectedDate={normalizedDay}
           rows={rows}
+          calendarBlocks={calendarBlocks}
           profileId={profile.id}
           profileRole={profile.role}
           month={monthContextBase.yearMonth}

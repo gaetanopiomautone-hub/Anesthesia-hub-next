@@ -18,8 +18,8 @@ type NewLeaveRequestFormProps = {
   monthLabel: string;
   defaultStartDate?: string;
   defaultEndDate?: string;
+  /** Prima data selezionabile (di solito oggi). */
   minDate?: string;
-  maxDate?: string;
   existingLeaves: ExistingLeave[];
   action: (formData: FormData) => void | Promise<void>;
 };
@@ -57,7 +57,6 @@ export function NewLeaveRequestForm({
   defaultStartDate,
   defaultEndDate,
   minDate,
-  maxDate,
   existingLeaves,
   action,
 }: NewLeaveRequestFormProps) {
@@ -94,7 +93,8 @@ export function NewLeaveRequestForm({
       <input type="hidden" name="day" value={day ?? ""} />
 
       <p className="rounded-lg border border-border bg-secondary/60 px-3 py-2 text-xs text-muted-foreground">
-        Stai inserendo una richiesta per {monthLabel}.
+        Calendario: {monthLabel}. Puoi richiedere ferie da oggi in avanti (anche mesi futuri); il mese in URL serve solo
+        alla vista calendario e lista.
       </p>
 
       {overlappingLeave ? (
@@ -117,7 +117,6 @@ export function NewLeaveRequestForm({
         value={startDate}
         onChange={(e) => setStartDate(e.target.value)}
         min={minDate}
-        max={maxDate}
         className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
       />
       <input
@@ -125,8 +124,7 @@ export function NewLeaveRequestForm({
         type="date"
         value={endDate}
         onChange={(e) => setEndDate(e.target.value)}
-        min={minDate}
-        max={maxDate}
+        min={minDate ?? startDate}
         className="rounded-lg border border-border bg-background px-3 py-2 text-sm"
       />
       <textarea
