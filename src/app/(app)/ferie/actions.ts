@@ -22,6 +22,7 @@ import {
   mapLeaveRequestToDbReview,
   mapLeaveRequestToDbUpdate,
 } from "@/lib/domain/leave-request-db";
+import { LEAVE_REQUEST_DB_STATUS } from "@/lib/domain/leave-requests-db-contract";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 const leaveRequestSchema = z.object({
@@ -185,6 +186,13 @@ function revalidateLeaveViews() {
   revalidatePath("/dashboard");
 }
 
+async function resolveReviewerId(supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>, profileId: string) {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return user?.id ?? profileId;
+}
+
 export async function createLeaveRequestAction(formData: FormData) {
   const { month, day } = parseFerieContextFromForm(formData);
   const profile = await requireFerieTrainee();
@@ -269,7 +277,7 @@ export async function updateLeaveRequestAction(formData: FormData) {
     )
     .eq("id", parsed.id)
     .eq("user_id", profile.id)
-    .eq("status", "in_attesa")
+    .eq("status", LEAVE_REQUEST_DB_STATUS.pending)
     .select("id");
 
   if (error) {
@@ -306,18 +314,19 @@ export async function approveLeaveRequestAction(formData: FormData) {
   }
 
   const reviewNote = parsed.adminNote?.trim();
+  const reviewerId = await resolveReviewerId(supabase, profile.id);
 
   const { data: updated, error } = await supabase
     .from("leave_requests")
     .update(
       mapLeaveRequestToDbReview({
-        reviewerId: profile.id,
-        status: "approvato",
+        reviewerId,
+        status: LEAVE_REQUEST_DB_STATUS.approved,
         reason: reviewNote ?? null,
       }),
     )
     .eq("id", parsed.id)
-    .eq("status", "in_attesa")
+    .eq("status", LEAVE_REQUEST_DB_STATUS.pending)
     .select("id");
 
   if (error) {
@@ -325,7 +334,10 @@ export async function approveLeaveRequestAction(formData: FormData) {
   }
 
   if (!updated?.length) {
-    redirectToFerieWithError("Richiesta già elaborata o non più in attesa.", { month, day });
+    redirectToFerieWithError(
+      "Impossibile approvare: richiesta già elaborata o permessi RLS insufficienti (policy leave_update_scheduler_admin_approval).",
+      { month, day },
+    );
   }
 
   revalidateLeaveViews();
@@ -354,18 +366,19 @@ export async function rejectLeaveRequestAction(formData: FormData) {
   }
 
   const reviewNote = parsed.adminNote?.trim();
+  const reviewerId = await resolveReviewerId(supabase, profile.id);
 
   const { data: updated, error } = await supabase
     .from("leave_requests")
     .update(
       mapLeaveRequestToDbReview({
-        reviewerId: profile.id,
-        status: "rifiutato",
+        reviewerId,
+        status: LEAVE_REQUEST_DB_STATUS.rejected,
         reason: reviewNote ?? null,
       }),
     )
     .eq("id", parsed.id)
-    .eq("status", "in_attesa")
+    .eq("status", LEAVE_REQUEST_DB_STATUS.pending)
     .select("id");
 
   if (error) {
@@ -373,7 +386,10 @@ export async function rejectLeaveRequestAction(formData: FormData) {
   }
 
   if (!updated?.length) {
-    redirectToFerieWithError("Richiesta già elaborata o non più in attesa.", { month, day });
+    redirectToFerieWithError(
+      "Impossibile rifiutare: richiesta già elaborata o permessi RLS insufficienti (policy leave_update_scheduler_admin_approval).",
+      { month, day },
+    );
   }
 
   revalidateLeaveViews();
@@ -412,7 +428,7 @@ export async function cancelLeaveRequestAction(formData: FormData) {
     .update(mapLeaveRequestToDbCancel(new Date().toISOString()))
     .eq("id", parsed.id)
     .eq("user_id", profile.id)
-    .eq("status", "in_attesa")
+    .eq("status", LEAVE_REQUEST_DB_STATUS.pending)
     .select("id");
 
   if (error) {

@@ -66,7 +66,7 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
   const actionErrorCode = params?.errorCode?.trim() ? params.errorCode.trim() : null;
   const actionOk = params?.ok?.trim() || null;
   const monthContext = resolveMonthContext(monthContextBase.yearMonth);
-  const rows = await listLeaveRequests(profile);
+  const rows = await listLeaveRequests(profile, { yearMonth: monthContextBase.yearMonth });
 
   const canCreate = profile.role === "specializzando";
 

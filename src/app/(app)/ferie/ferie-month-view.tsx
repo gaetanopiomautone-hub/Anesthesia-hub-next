@@ -103,7 +103,9 @@ export function FerieMonthView({ yearMonth, initialSelectedDate, rows, profileId
         {filteredRows.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border bg-secondary/20 px-4 py-4">
             <p className="text-sm text-muted-foreground">
-              {selectedDate ? "Nessuna richiesta per il giorno selezionato." : "Nessuna richiesta nel mese selezionato."}
+              {selectedDate
+                ? "Nessuna richiesta per il giorno selezionato."
+                : `Nessuna richiesta per ${yearMonth}. Prova un altro mese dal selettore in alto.`}
             </p>
             <a
               href="#new-leave-request"

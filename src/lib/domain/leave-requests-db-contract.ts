@@ -40,6 +40,14 @@ export const LEAVE_REQUESTS_SELECT_COLUMNS = [
 /** Stati enum Postgres (approval_status su ferie). */
 export const LEAVE_REQUESTS_STATUSES = ["in_attesa", "approvato", "rifiutato", "annullato"] as const;
 
+/** Valori `status` da usare nelle query PostgREST (mai `pending`/`approved` inglesi). */
+export const LEAVE_REQUEST_DB_STATUS = {
+  pending: "in_attesa",
+  approved: "approvato",
+  rejected: "rifiutato",
+  cancelled: "annullato",
+} as const satisfies Record<string, (typeof LEAVE_REQUESTS_STATUSES)[number]>;
+
 /** Stati che partecipano al controllo overlap server-side. */
 export const LEAVE_REQUESTS_ACTIVE_OVERLAP_STATUSES = ["in_attesa", "approvato"] as const;
 

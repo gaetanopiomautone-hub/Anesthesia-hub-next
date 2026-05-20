@@ -9,6 +9,7 @@ import {
   type ShiftsAssigneeFilterColumn,
 } from "@/lib/data/shifts";
 import { mapLeaveRequestFromDb } from "@/lib/domain/leave-request-db";
+import { LEAVE_REQUEST_DB_STATUS } from "@/lib/domain/leave-requests-db-contract";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 type LeaveRequestRow = {
@@ -284,7 +285,7 @@ export async function getDashboardData(profile: CurrentUserProfile) {
         .from("leave_requests")
         .select("id", { count: "exact", head: true })
         .eq("user_id", profile.id)
-        .eq("status", "in_attesa");
+        .eq("status", LEAVE_REQUEST_DB_STATUS.pending);
 
       if (error) {
         throw new Error(`leave_requests pending count failed: ${error.message}`);
@@ -295,7 +296,7 @@ export async function getDashboardData(profile: CurrentUserProfile) {
       const { count, error } = await supabase
         .from("leave_requests")
         .select("id", { count: "exact", head: true })
-        .eq("status", "in_attesa");
+        .eq("status", LEAVE_REQUEST_DB_STATUS.pending);
 
       if (error) {
         throw new Error(`leave_requests pending count failed: ${error.message}`);

@@ -223,6 +223,24 @@ using (public.is_admin());
 -- - trainee inserts only own pending requests
 -- - trainee updates only own pending requests
 -- - scheduler/admin read all and can approve/reject
+--
+-- Parità con le migration (evita drift dopo `supabase db reset` locale vs produzione):
+--   - `is_scheduler_or_admin` + SELECT/UPDATE approvazione: anche in
+--     `migrations/20260520100000_leave_requests_rls_select_approval.sql` (repair su DB già esistenti).
+--   - INSERT / UPDATE own + `cancelled_at`: `20260519100000_*`, `20260519200000_*`.
+--
+-- Nomi policy attesi su `public.leave_requests` (authenticated):
+--   1. leave_select_own_or_scheduler_admin
+--   2. leave_insert_own_pending   -- (non rinominare in "leave_insert_own": il nome canonico è *_pending)
+--   3. leave_update_own_only_pending
+--   4. leave_update_scheduler_admin_approval
+--
+-- Verifica post-migration (SQL Editor Supabase):
+--   select policyname, cmd, qual, with_check
+--   from pg_policies
+--   where schemaname = 'public'
+--     and tablename = 'leave_requests'
+--   order by policyname;
 -- ---------------------------------------------------------------------------
 
 alter table public.leave_requests enable row level security;
