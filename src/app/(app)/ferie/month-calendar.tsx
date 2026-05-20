@@ -59,12 +59,15 @@ function MarkerChip({ marker }: { marker: CalendarMarker }) {
       <span className={`inline-block h-2.5 w-2.5 shrink-0 rounded-sm border-2 ${border}`} title="Congresso" />
     );
   }
-  return (
-    <span
-      className={`inline-block h-2.5 w-2.5 shrink-0 rounded-sm border-2 ${border}`}
-      title={marker.title ? `Lezione: ${marker.title}` : "Lezione"}
-    />
-  );
+  if (marker.kind === "lesson") {
+    return (
+      <span
+        className={`inline-block h-2.5 w-2.5 shrink-0 rounded-sm border-2 ${border}`}
+        title={marker.title ? `Lezione: ${marker.title}` : "Lezione"}
+      />
+    );
+  }
+  return null;
 }
 
 export function MonthCalendar({ yearMonth, leaves, blocks, selectedDate, onSelectDate }: MonthCalendarProps) {
