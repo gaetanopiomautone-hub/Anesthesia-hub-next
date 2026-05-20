@@ -184,19 +184,39 @@ describe("ferie actions (integration-like)", () => {
     await expect(
       createLeaveRequestAction(
         formData({
-          month: "2026-04",
-          day: "2026-04-15",
+          month: "2026-07",
+          day: "2026-07-15",
           requestType: "vacation",
-          startDate: "2026-04-15",
-          endDate: "2026-04-16",
+          startDate: "2026-07-15",
+          endDate: "2026-07-16",
           reason: "test",
         }),
       ),
     ).rejects.toThrow("REDIRECT:");
 
     const path = lastRedirectPath();
-    expect(path).toBe("/ferie?month=2026-04&day=2026-04-15&ok=created");
+    expect(path).toBe("/ferie?month=2026-07&day=2026-07-15&ok=created");
     expect(mocks.revalidatePathMock).toHaveBeenCalledWith("/ferie");
+  });
+
+  it("create redirects to request month when calendar view month differs", async () => {
+    mocks.requireUserMock.mockResolvedValue({ id: "u1", role: "specializzando" });
+    mocks.createServerSupabaseClientMock.mockResolvedValue(makeCreateSupabase({}));
+
+    await expect(
+      createLeaveRequestAction(
+        formData({
+          month: "2026-05",
+          day: "",
+          requestType: "vacation",
+          startDate: "2026-06-01",
+          endDate: "2026-06-02",
+          reason: "test",
+        }),
+      ),
+    ).rejects.toThrow("REDIRECT:");
+
+    expect(lastRedirectPath()).toBe("/ferie?month=2026-06&day=2026-06-01&ok=created");
   });
 
   it("create overlap redirects with overlap error and preserves valid day", async () => {
@@ -206,19 +226,19 @@ describe("ferie actions (integration-like)", () => {
     await expect(
       createLeaveRequestAction(
         formData({
-          month: "2026-04",
-          day: "2026-04-15",
+          month: "2026-07",
+          day: "2026-07-15",
           requestType: "vacation",
-          startDate: "2026-04-15",
-          endDate: "2026-04-16",
+          startDate: "2026-07-15",
+          endDate: "2026-07-16",
           reason: "overlap-check",
         }),
       ),
     ).rejects.toThrow("REDIRECT:");
 
     const query = readRedirectQuery(lastRedirectPath());
-    expect(query.get("month")).toBe("2026-04");
-    expect(query.get("day")).toBe("2026-04-15");
+    expect(query.get("month")).toBe("2026-07");
+    expect(query.get("day")).toBe("2026-07-15");
     expect(query.get("errorCode")).toBe("overlap");
   });
 
@@ -229,23 +249,23 @@ describe("ferie actions (integration-like)", () => {
     await expect(
       createLeaveRequestAction(
         formData({
-          month: "2026-04",
-          day: "2026-04-15",
+          month: "2026-07",
+          day: "2026-07-15",
           requestType: "vacation",
-          startDate: "2026-04-15",
-          endDate: "2026-04-16",
+          startDate: "2026-07-15",
+          endDate: "2026-07-16",
           reason: "db-known",
         }),
       ),
     ).rejects.toThrow("REDIRECT:");
 
     const query = readRedirectQuery(lastRedirectPath());
-    expect(query.get("month")).toBe("2026-04");
-    expect(query.get("day")).toBe("2026-04-15");
+    expect(query.get("month")).toBe("2026-07");
+    expect(query.get("day")).toBe("2026-07-15");
     expect(query.get("error")).toBe("Esiste già un record che impedisce questa operazione.");
   });
 
-  it("update keeps month and drops out-of-month day in redirect", async () => {
+  it("update redirects to request month after save", async () => {
     mocks.requireUserMock.mockResolvedValue({ id: "u1", role: "specializzando" });
     mocks.createServerSupabaseClientMock.mockResolvedValue(
       makeUpdateSupabase({ existing: { id: "r1", user_id: "u1", status: "pending" } }),
@@ -255,19 +275,19 @@ describe("ferie actions (integration-like)", () => {
       updateLeaveRequestAction(
         formData({
           id: "11111111-1111-4111-8111-111111111111",
-          month: "2026-04",
-          day: "2026-05-01",
+          month: "2026-06",
+          day: "2026-06-01",
           requestType: "vacation",
-          startDate: "2026-04-20",
-          endDate: "2026-04-22",
+          startDate: "2026-07-20",
+          endDate: "2026-07-22",
           reason: "update-check",
         }),
       ),
     ).rejects.toThrow("REDIRECT:");
 
     const query = readRedirectQuery(lastRedirectPath());
-    expect(query.get("month")).toBe("2026-04");
-    expect(query.get("day")).toBeNull();
+    expect(query.get("month")).toBe("2026-07");
+    expect(query.get("day")).toBe("2026-07-20");
     expect(query.get("ok")).toBe("updated");
   });
 
@@ -284,19 +304,19 @@ describe("ferie actions (integration-like)", () => {
       updateLeaveRequestAction(
         formData({
           id: "11111111-1111-4111-8111-111111111111",
-          month: "2026-04",
-          day: "2026-04-15",
+          month: "2026-06",
+          day: "2026-06-01",
           requestType: "vacation",
-          startDate: "2026-04-20",
-          endDate: "2026-04-22",
+          startDate: "2026-07-20",
+          endDate: "2026-07-22",
           reason: "db-unknown",
         }),
       ),
     ).rejects.toThrow("REDIRECT:");
 
     const query = readRedirectQuery(lastRedirectPath());
-    expect(query.get("month")).toBe("2026-04");
-    expect(query.get("day")).toBe("2026-04-15");
+    expect(query.get("month")).toBe("2026-06");
+    expect(query.get("day")).toBe("2026-06-01");
     expect(query.get("error")).toBe("Operazione non riuscita. Riprova più tardi.");
   });
 

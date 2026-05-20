@@ -23,6 +23,7 @@ import {
   mapLeaveRequestToDbUpdate,
 } from "@/lib/domain/leave-request-db";
 import { LEAVE_REQUEST_DB_STATUS } from "@/lib/domain/leave-requests-db-contract";
+import { getMonthParam } from "@/lib/dates/ymd";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 const leaveRequestSchema = z.object({
@@ -224,7 +225,13 @@ export async function createLeaveRequestAction(formData: FormData) {
   }
 
   revalidateLeaveViews();
-  redirect(feriePathWithContext({ month, day, ok: "created" }));
+  redirect(
+    feriePathWithContext({
+      month: getMonthParam(parsed.startDate),
+      day: parsed.startDate,
+      ok: "created",
+    }),
+  );
 }
 
 export async function updateLeaveRequestAction(formData: FormData) {
@@ -289,7 +296,13 @@ export async function updateLeaveRequestAction(formData: FormData) {
   }
 
   revalidateLeaveViews();
-  redirect(feriePathWithContext({ month, day, ok: "updated" }));
+  redirect(
+    feriePathWithContext({
+      month: getMonthParam(parsed.startDate),
+      day: parsed.startDate,
+      ok: "updated",
+    }),
+  );
 }
 
 export async function approveLeaveRequestAction(formData: FormData) {
