@@ -53,22 +53,24 @@ export function mapLeaveTypeFromDb(type: string): LeaveRequestType {
     case "ferie":
     case "vacation":
       return "vacation";
+    case "congresso":
+    case "conference":
+      return "conference";
     case "desiderata":
       return "other";
     case "permission":
       return "permission";
     case "sick_leave":
       return "sick_leave";
-    case "conference":
-      return "conference";
     default:
       return "other";
   }
 }
 
-/** Tipi ammessi dall'enum Postgres `leave_request_type` (ferie/desiderata sul DB italiano). */
-export function mapLeaveTypeToDb(type: string): "ferie" | "desiderata" {
+/** Tipi ammessi dall'enum Postgres `leave_request_type`. */
+export function mapLeaveTypeToDb(type: string): "ferie" | "desiderata" | "congresso" {
   if (type === "ferie" || type === "vacation") return "ferie";
+  if (type === "conference" || type === "congresso") return "congresso";
   return "desiderata";
 }
 
@@ -112,7 +114,23 @@ export function mapLeaveRequestToDbInsert(payload: {
   };
 }
 
-export function mapLeaveRequestToDbCancel(cancelledAtIso: string) {
+/** Annullamento da in_attesa: azzera review. Da approvato: conserva reviewed_by/at. */
+export function mapLeaveRequestToDbCancel(
+  cancelledAtIso: string,
+  existing?: Pick<LeaveRequestRow, "status" | "reviewed_by" | "reviewed_at">,
+) {
+  const preserveReview =
+    existing?.status === "approved" &&
+    existing.reviewed_by != null &&
+    existing.reviewed_at != null;
+
+  if (preserveReview) {
+    return {
+      status: "annullato" as const,
+      cancelled_at: cancelledAtIso,
+    };
+  }
+
   return {
     status: "annullato" as const,
     reviewed_by: null,

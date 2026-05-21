@@ -42,7 +42,14 @@ end$$;
 do $$
 begin
   if not exists (select 1 from pg_type where typname = 'leave_request_type') then
-    create type public.leave_request_type as enum ('ferie', 'desiderata');
+    create type public.leave_request_type as enum ('ferie', 'desiderata', 'congresso');
+  end if;
+end$$;
+
+do $$
+begin
+  if exists (select 1 from pg_type where typname = 'leave_request_type') then
+    alter type public.leave_request_type add value if not exists 'congresso';
   end if;
 end$$;
 
@@ -263,9 +270,11 @@ begin
         )
         or (
           status = 'annullato'
-          and reviewed_by is null
-          and reviewed_at is null
           and cancelled_at is not null
+          and (
+            (reviewed_by is null and reviewed_at is null)
+            or (reviewed_by is not null and reviewed_at is not null)
+          )
         )
         or (
           status in ('approvato', 'rifiutato')

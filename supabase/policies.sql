@@ -234,6 +234,7 @@ using (public.is_admin());
 --   2. leave_insert_own_pending   -- (non rinominare in "leave_insert_own": il nome canonico è *_pending)
 --   3. leave_update_own_only_pending
 --   4. leave_update_scheduler_admin_approval
+--   5. leave_update_scheduler_admin_cancel
 --
 -- Verifica post-migration (SQL Editor Supabase):
 --   select policyname, cmd, qual, with_check
@@ -303,6 +304,21 @@ with check (
   and reviewed_by = auth.uid()
   and reviewed_at is not null
   and cancelled_at is null
+);
+
+drop policy if exists "leave_update_scheduler_admin_cancel" on public.leave_requests;
+create policy "leave_update_scheduler_admin_cancel"
+on public.leave_requests
+for update
+to authenticated
+using (
+  public.is_scheduler_or_admin()
+  and status in ('in_attesa', 'approvato')
+)
+with check (
+  public.is_scheduler_or_admin()
+  and status = 'annullato'
+  and cancelled_at is not null
 );
 
 -- ---------------------------------------------------------------------------

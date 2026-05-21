@@ -124,31 +124,30 @@ export function LeaveRequestsList({
                   {leaveStatusLabelItalian(row.status)}
                 </span>
                 <p className="text-xs text-muted-foreground">Creata il {formatDateItalian(row.created_at)}</p>
-                {canEdit ? (
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (isEditing) {
-                          setEditingId(null);
-                          setDraftStart("");
-                          setDraftEnd("");
-                          return;
-                        }
-                        setEditingId(row.id);
-                        setDraftStart(row.start_date);
-                        setDraftEnd(row.end_date);
-                      }}
-                      className="rounded-lg border border-border px-3 py-1 text-xs font-medium hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
-                    >
-                      {isEditing ? "Chiudi modifica" : "Modifica"}
-                    </button>
-                    {!isEditing && canCancel ? (
+                {!isEditing && (canEdit || canCancel) ? (
+                  <div className="flex flex-wrap items-center justify-end gap-2">
+                    {canEdit ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingId(row.id);
+                          setDraftStart(row.start_date);
+                          setDraftEnd(row.end_date);
+                        }}
+                        className="rounded-lg border border-border px-3 py-1 text-xs font-medium hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                      >
+                        Modifica
+                      </button>
+                    ) : null}
+                    {canCancel ? (
                       <form
                         action={cancelLeaveRequestAction}
                         onSubmit={(e) => {
-                          const ok = window.confirm("Vuoi annullare questa richiesta ferie?");
-                          if (!ok) e.preventDefault();
+                          const msg =
+                            row.status === "approved"
+                              ? "Vuoi annullare questa richiesta già approvata? L'operazione aggiorna la pianificazione."
+                              : "Vuoi annullare questa richiesta ferie?";
+                          if (!window.confirm(msg)) e.preventDefault();
                         }}
                       >
                         <input type="hidden" name="id" value={row.id} />
@@ -163,6 +162,19 @@ export function LeaveRequestsList({
                       </form>
                     ) : null}
                   </div>
+                ) : null}
+                {isEditing && canEdit ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingId(null);
+                      setDraftStart("");
+                      setDraftEnd("");
+                    }}
+                    className="rounded-lg border border-border px-3 py-1 text-xs font-medium hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                  >
+                    Chiudi modifica
+                  </button>
                 ) : null}
               </div>
             </div>

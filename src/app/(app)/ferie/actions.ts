@@ -22,6 +22,7 @@ import {
   mapLeaveRequestToDbReview,
   mapLeaveRequestToDbUpdate,
 } from "@/lib/domain/leave-request-db";
+import { canCancelLeaveRequest } from "@/lib/domain/leave-request-permissions";
 import { LEAVE_REQUEST_DB_STATUS } from "@/lib/domain/leave-requests-db-contract";
 import { getMonthParam } from "@/lib/dates/ymd";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -85,6 +86,12 @@ async function requireFerieApprover() {
   const profile = await requireUser();
   if (!canAccess(profile.role, "ferie")) redirect("/forbidden");
   if (profile.role !== "tutor" && profile.role !== "admin") redirect("/forbidden");
+  return profile;
+}
+
+async function requireFerieAccess() {
+  const profile = await requireUser();
+  if (!canAccess(profile.role, "ferie")) redirect("/forbidden");
   return profile;
 }
 
@@ -411,14 +418,14 @@ export async function rejectLeaveRequestAction(formData: FormData) {
 
 export async function cancelLeaveRequestAction(formData: FormData) {
   const { month, day } = parseFerieContextFromForm(formData);
-  const profile = await requireFerieTrainee();
+  const profile = await requireFerieAccess();
   const parsed = parseLeaveCancelForm(formData);
 
   const supabase = await createServerSupabaseClient();
 
   const { data: existingRaw, error: existingError } = await supabase
     .from("leave_requests")
-    .select("id, user_id, status")
+    .select("id, user_id, status, reviewed_by, reviewed_at")
     .eq("id", parsed.id)
     .single();
 
@@ -428,21 +435,35 @@ export async function cancelLeaveRequestAction(formData: FormData) {
 
   const existing = mapLeaveRequestFromDb(existingRaw as Record<string, unknown>);
 
-  if (existing.user_id !== profile.id) {
-    redirectToFerieWithError("Non puoi annullare richieste di altri utenti.", { month, day });
-  }
-
-  if (existing.status !== "pending") {
+  if (!canCancelLeaveRequest({ request: existing, currentUserId: profile.id, currentUserRole: profile.role })) {
+    if (profile.role === "specializzando" && existing.user_id !== profile.id) {
+      redirectToFerieWithError("Non puoi annullare richieste di altri utenti.", { month, day });
+    }
     redirectToFerieWithError("Puoi annullare solo richieste ancora in attesa.", { month, day });
   }
 
-  const { data: updated, error } = await supabase
+  const isScheduler = profile.role === "tutor" || profile.role === "admin";
+  const isOwnerTrainee = profile.role === "specializzando" && existing.user_id === profile.id;
+
+  if (!isOwnerTrainee && !isScheduler) {
+    redirectToFerieWithError("Non hai permessi per annullare questa richiesta.", { month, day });
+  }
+
+  let updateQuery = supabase
     .from("leave_requests")
-    .update(mapLeaveRequestToDbCancel(new Date().toISOString()))
-    .eq("id", parsed.id)
-    .eq("user_id", profile.id)
-    .eq("status", LEAVE_REQUEST_DB_STATUS.pending)
-    .select("id");
+    .update(mapLeaveRequestToDbCancel(new Date().toISOString(), existing))
+    .eq("id", parsed.id);
+
+  if (isOwnerTrainee) {
+    updateQuery = updateQuery.eq("user_id", profile.id).eq("status", LEAVE_REQUEST_DB_STATUS.pending);
+  } else {
+    updateQuery = updateQuery.in("status", [
+      LEAVE_REQUEST_DB_STATUS.pending,
+      LEAVE_REQUEST_DB_STATUS.approved,
+    ]);
+  }
+
+  const { data: updated, error } = await updateQuery.select("id");
 
   if (error) {
     redirectToFerieWithError(friendlyPostgresMessage(error), { month, day });

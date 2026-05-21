@@ -58,6 +58,7 @@ export const LEAVE_REQUESTS_RLS_POLICIES = [
   "leave_insert_own_pending",
   "leave_update_own_only_pending",
   "leave_update_scheduler_admin_approval",
+  "leave_update_scheduler_admin_cancel",
 ] as const;
 
 /** Marker nel blocco SQL ferie: se spariscono, il guard fallisce. */

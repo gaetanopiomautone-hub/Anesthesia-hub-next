@@ -12,7 +12,15 @@ export function canEditLeaveRequest({ request, currentUserId, currentUserRole }:
 }
 
 export function canCancelLeaveRequest({ request, currentUserId, currentUserRole }: PermissionContext) {
-  return currentUserRole === "specializzando" && request.user_id === currentUserId && request.status === "pending";
+  if (currentUserRole === "tutor" || currentUserRole === "admin") {
+    return request.status === "pending" || request.status === "approved";
+  }
+
+  return (
+    currentUserRole === "specializzando" &&
+    request.user_id === currentUserId &&
+    request.status === "pending"
+  );
 }
 
 export function canReviewLeaveRequest({ request, currentUserId, currentUserRole }: PermissionContext) {

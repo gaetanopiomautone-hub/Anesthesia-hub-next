@@ -93,7 +93,13 @@ function makeCancelSupabase({
   updateData = [{ id: "updated-id" }],
   updateError = null,
 }: {
-  existing: { id: string; user_id: string; status: string } | null;
+  existing: {
+    id: string;
+    user_id: string;
+    status: string;
+    reviewed_by?: string | null;
+    reviewed_at?: string | null;
+  } | null;
   existingError?: { code: string } | null;
   updateData?: Array<{ id: string }>;
   updateError?: { code: string } | null;
@@ -113,6 +119,7 @@ function makeCancelSupabase({
 
       const updateQuery = {
         eq: () => updateQuery,
+        in: () => updateQuery,
         select: () => Promise.resolve({ data: updateData, error: updateError }),
       };
       return {
@@ -357,6 +364,33 @@ describe("ferie actions (integration-like)", () => {
 
     const query = readRedirectQuery(lastRedirectPath());
     expect(query.get("error")).toContain("Puoi annullare solo richieste ancora in attesa.");
+  });
+
+  it("tutor can cancel approved request of another user", async () => {
+    mocks.requireUserMock.mockResolvedValue({ id: "tutor-1", role: "tutor" });
+    mocks.createServerSupabaseClientMock.mockResolvedValue(
+      makeCancelSupabase({
+        existing: {
+          id: "r1",
+          user_id: "u2",
+          status: "approved",
+          reviewed_by: "tutor-1",
+          reviewed_at: "2026-04-01T10:00:00.000Z",
+        },
+      }),
+    );
+
+    await expect(
+      cancelLeaveRequestAction(
+        formData({
+          id: "11111111-1111-4111-8111-111111111111",
+          month: "2026-04",
+          day: "2026-04-15",
+        }),
+      ),
+    ).rejects.toThrow("REDIRECT:");
+
+    expect(lastRedirectPath()).toBe("/ferie?month=2026-04&day=2026-04-15&ok=cancelled");
   });
 
   it("cancel is denied for non-owner", async () => {

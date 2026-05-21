@@ -55,6 +55,23 @@ describe("leave-request-db", () => {
   it("maps status and request type enums", () => {
     expect(mapLeaveStatusFromDb("approvato")).toBe("approved");
     expect(mapLeaveTypeToDb("permission")).toBe("desiderata");
+    expect(mapLeaveTypeToDb("conference")).toBe("congresso");
+  });
+
+  it("maps congresso from DB to conference", () => {
+    const row = mapLeaveRequestFromDb({
+      id: "lr-2",
+      user_id: "user-1",
+      request_type: "congresso",
+      start_date: "2026-07-15",
+      end_date: "2026-07-15",
+      status: "in_attesa",
+      reason: null,
+      reviewed_by: null,
+      reviewed_at: null,
+      cancelled_at: null,
+    });
+    expect(row.request_type).toBe("conference");
   });
 
   it("maps cancel payload with cancelled_at", () => {
@@ -62,6 +79,19 @@ describe("leave-request-db", () => {
       status: "annullato",
       reviewed_by: null,
       reviewed_at: null,
+      cancelled_at: "2026-07-15T10:00:00.000Z",
+    });
+  });
+
+  it("preserves review fields when cancelling approved request", () => {
+    expect(
+      mapLeaveRequestToDbCancel("2026-07-15T10:00:00.000Z", {
+        status: "approved",
+        reviewed_by: "admin-1",
+        reviewed_at: "2026-07-10T12:00:00.000Z",
+      }),
+    ).toEqual({
+      status: "annullato",
       cancelled_at: "2026-07-15T10:00:00.000Z",
     });
   });
