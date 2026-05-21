@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildCalendarMarkersForDay,
+  calendarMarkerTooltip,
   leaveRequestTypeToCalendarKind,
   planningBlockKindToCalendarKind,
 } from "@/lib/domain/leave-calendar-markers";
@@ -46,5 +47,15 @@ describe("leave-calendar-markers", () => {
     if (leaveMarker?.kind === "leave") expect(leaveMarker.status).toBe("approved");
     expect(markers.some((m) => m.kind === "congress")).toBe(true);
     expect(markers.some((m) => m.kind === "lesson")).toBe(true);
+  });
+
+  it("builds human-readable tooltips", () => {
+    expect(
+      calendarMarkerTooltip({ kind: "leave", status: "approved", date: "2026-07-15", id: "l1" }),
+    ).toBe("Ferie · Approvata");
+    expect(calendarMarkerTooltip({ kind: "congress", date: "2026-07-15", id: "c1" })).toBe("Congresso");
+    expect(
+      calendarMarkerTooltip({ kind: "lesson", date: "2026-07-15", id: "b1", title: "ECM" }),
+    ).toBe("Lezione: ECM");
   });
 });

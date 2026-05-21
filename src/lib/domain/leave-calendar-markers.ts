@@ -62,10 +62,17 @@ export function buildCalendarMarkersForDay(params: {
   return markers;
 }
 
-export const CALENDAR_EVENT_BORDER: Record<CalendarEventKind, string> = {
-  leave: "border-blue-500 bg-blue-50/60",
-  congress: "border-purple-500 bg-purple-50/60",
-  lesson: "border-orange-500 bg-orange-50/60",
+/** Chip pieno per tipo evento (FER / CONG / LEZ). */
+export const CALENDAR_EVENT_CHIP: Record<CalendarEventKind, string> = {
+  leave: "bg-blue-100 text-blue-800 ring-blue-300",
+  congress: "bg-violet-100 text-violet-800 ring-violet-300",
+  lesson: "bg-orange-100 text-orange-800 ring-orange-300",
+};
+
+export const CALENDAR_EVENT_SHORT_LABEL: Record<CalendarEventKind, string> = {
+  leave: "FER",
+  congress: "CONG",
+  lesson: "LEZ",
 };
 
 export const CALENDAR_STATUS_PILL: Record<LeaveRequestStatus, string> = {
@@ -86,4 +93,27 @@ export function calendarStatusPillLabel(status: LeaveRequestStatus): string {
     case "cancelled":
       return "An.";
   }
+}
+
+export function calendarLeaveStatusLongLabel(status: LeaveRequestStatus): string {
+  switch (status) {
+    case "pending":
+      return "In attesa";
+    case "approved":
+      return "Approvata";
+    case "rejected":
+      return "Rifiutata";
+    case "cancelled":
+      return "Annullata";
+  }
+}
+
+export function calendarMarkerTooltip(marker: CalendarMarker): string {
+  if (marker.kind === "leave") {
+    return `Ferie · ${calendarLeaveStatusLongLabel(marker.status)}`;
+  }
+  if (marker.kind === "congress") {
+    return "Congresso";
+  }
+  return marker.title ? `Lezione: ${marker.title}` : "Lezione";
 }

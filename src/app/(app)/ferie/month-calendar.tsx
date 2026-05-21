@@ -3,8 +3,10 @@
 import type { LeaveRequestRow } from "@/lib/domain/leave-request-shared";
 import {
   buildCalendarMarkersForDay,
-  CALENDAR_EVENT_BORDER,
+  CALENDAR_EVENT_CHIP,
+  CALENDAR_EVENT_SHORT_LABEL,
   CALENDAR_STATUS_PILL,
+  calendarMarkerTooltip,
   calendarStatusPillLabel,
   type CalendarMarker,
   type FerieCalendarBlock,
@@ -40,31 +42,42 @@ function getMonthGrid(yearMonth: string) {
   return cells;
 }
 
+const CHIP_BASE =
+  "inline-flex shrink-0 items-center rounded px-1.5 py-0.5 text-[10px] font-bold leading-none ring-1";
+
+function TypeChip({ marker }: { marker: CalendarMarker }) {
+  const kind = marker.kind;
+  return (
+    <span className={`${CHIP_BASE} ${CALENDAR_EVENT_CHIP[kind]}`}>
+      {CALENDAR_EVENT_SHORT_LABEL[kind]}
+    </span>
+  );
+}
+
 function MarkerChip({ marker }: { marker: CalendarMarker }) {
-  const border = CALENDAR_EVENT_BORDER[marker.kind];
+  const title = calendarMarkerTooltip(marker);
+
   if (marker.kind === "leave" && marker.status !== "cancelled") {
     return (
       <span
-        className={`inline-flex max-w-full items-center gap-0.5 rounded border px-1 py-0.5 ${border}`}
-        title={`Ferie · ${marker.status}`}
+        className="inline-flex max-w-full items-center gap-0.5"
+        title={title}
+        aria-label={title}
       >
-        <span className={`rounded px-0.5 text-[8px] font-semibold leading-none ${CALENDAR_STATUS_PILL[marker.status]}`}>
+        <TypeChip marker={marker} />
+        <span
+          className={`rounded px-1 py-0.5 text-[9px] font-semibold leading-none ${CALENDAR_STATUS_PILL[marker.status]}`}
+        >
           {calendarStatusPillLabel(marker.status)}
         </span>
       </span>
     );
   }
-  if (marker.kind === "congress") {
+  if (marker.kind === "congress" || marker.kind === "lesson") {
     return (
-      <span className={`inline-block h-2.5 w-2.5 shrink-0 rounded-sm border-2 ${border}`} title="Congresso" />
-    );
-  }
-  if (marker.kind === "lesson") {
-    return (
-      <span
-        className={`inline-block h-2.5 w-2.5 shrink-0 rounded-sm border-2 ${border}`}
-        title={marker.title ? `Lezione: ${marker.title}` : "Lezione"}
-      />
+      <span className="inline-flex max-w-full" title={title} aria-label={title}>
+        <TypeChip marker={marker} />
+      </span>
     );
   }
   return null;
