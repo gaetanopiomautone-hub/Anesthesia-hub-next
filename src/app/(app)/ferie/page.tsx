@@ -5,9 +5,10 @@ import { redirect } from "next/navigation";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { requireSection } from "@/lib/auth/get-current-user-profile";
+import { hasDateOverlap } from "@/lib/dates/hasDateOverlap";
 import { normalizeDayInMonth } from "@/lib/dates/day-in-month";
 import { getMonthContext } from "@/lib/dates/getMonthContext";
-import { compareYmd, formatYmd, isValidYearMonth, monthEndYmd, monthStartYmd, toLocalDateFromYmd } from "@/lib/dates/ymd";
+import { compareYmd, formatYmd, monthEndYmd, monthStartYmd, toLocalDateFromYmd } from "@/lib/dates/ymd";
 import { listFerieCalendarBlocksForMonth } from "@/lib/data/ferie-calendar-blocks";
 import { LEAVE_OVERLAP_ERROR_MESSAGE } from "@/lib/data/leave-request-overlap";
 import { listLeaveRequests } from "@/lib/data/leave-requests";
@@ -17,6 +18,7 @@ import {
 } from "./actions";
 import { ClearOkParam } from "./clear-ok-param";
 import { FerieMonthView } from "./ferie-month-view";
+import { LeaveRequestsList } from "./leave-requests-list";
 import { NewLeaveRequestForm } from "./new-leave-request-form";
 
 type FeriePageProps = {
@@ -49,6 +51,11 @@ function resolveLeaveFormDateDefaults(params: { day: string | null; viewMonth: s
   return { minDate: todayYmd, defaultStartDate: defaultStart, defaultEndDate: defaultStart };
 }
 
+function filterRowsByDay(rows: Awaited<ReturnType<typeof listLeaveRequests>>, day: string | null) {
+  if (!day) return rows;
+  return rows.filter((r) => hasDateOverlap(day, day, r.start_date, r.end_date));
+}
+
 export default async function FeriePage({ searchParams }: FeriePageProps) {
   const profile = await requireSection("ferie");
   const params = await searchParams;
@@ -73,17 +80,26 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
     day: normalizedDay,
     viewMonth: monthContextBase.yearMonth,
   });
-  const rows = await listLeaveRequests(profile, { yearMonth: monthContextBase.yearMonth });
-  const overlapLeaves =
-    profile.role === "specializzando"
-      ? await listLeaveRequests(profile, { allInView: true })
-      : [];
+
+  const calendarRequests = await listLeaveRequests(profile, {
+    scope: "calendar",
+    yearMonth: monthContextBase.yearMonth,
+  });
+  const visibleRequests = await listLeaveRequests(profile, { includeAllFuture: true });
+  const listRequests = filterRowsByDay(visibleRequests, normalizedDay);
+
   const calendarBlocks = await listFerieCalendarBlocksForMonth(
     monthStartYmd(monthContextBase.yearMonth),
     monthEndYmd(monthContextBase.yearMonth),
   );
 
   const canCreate = profile.role === "specializzando";
+  const listTitle =
+    profile.role === "specializzando" ? "Le mie richieste" : "Richieste ferie";
+  const listDescription =
+    profile.role === "specializzando"
+      ? "Tutte le tue richieste (in attesa, approvate, rifiutate, annullate), indipendentemente dal mese del calendario."
+      : "Tutte le richieste visibili al tuo ruolo. Le in attesa possono essere approvate o rifiutate.";
 
   return (
     <div className="space-y-6">
@@ -132,7 +148,7 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
               defaultStartDate={formDates.defaultStartDate}
               defaultEndDate={formDates.defaultEndDate}
               minDate={formDates.minDate}
-              existingLeaves={overlapLeaves.map((row) => ({
+              existingLeaves={visibleRequests.map((row) => ({
                 start: row.start_date,
                 end: row.end_date,
                 status: row.status,
@@ -149,12 +165,42 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
         <FerieMonthView
           yearMonth={monthContextBase.yearMonth}
           initialSelectedDate={normalizedDay}
-          rows={rows}
+          calendarRows={calendarRequests}
           calendarBlocks={calendarBlocks}
-          profileId={profile.id}
-          profileRole={profile.role}
-          month={monthContextBase.yearMonth}
         />
+      </section>
+
+      <section id="leave-requests-list">
+        <Card title={listTitle} description={listDescription}>
+          {normalizedDay ? (
+            <p className="mb-3 text-xs text-muted-foreground">
+              Filtro giorno dal calendario: <strong>{format(toLocalDateFromYmd(normalizedDay), "dd/MM/yyyy", { locale: it })}</strong>
+              {" "}
+              <a href={`/ferie?month=${monthContextBase.yearMonth}`} className="underline hover:text-foreground">
+                Mostra tutte
+              </a>
+            </p>
+          ) : null}
+
+          {listRequests.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              {normalizedDay
+                ? "Nessuna richiesta per il giorno selezionato."
+                : canCreate
+                  ? "Nessuna richiesta ancora. Usa il modulo sopra per inviarne una."
+                  : "Nessuna richiesta da visualizzare."}
+            </p>
+          ) : (
+            <LeaveRequestsList
+              rows={listRequests}
+              overlapRows={visibleRequests}
+              profileId={profile.id}
+              profileRole={profile.role}
+              month={monthContextBase.yearMonth}
+              day={normalizedDay}
+            />
+          )}
+        </Card>
       </section>
     </div>
   );

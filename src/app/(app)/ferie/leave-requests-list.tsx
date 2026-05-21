@@ -24,6 +24,8 @@ import {
 
 type LeaveRequestsListProps = {
   rows: LeaveRequestRow[];
+  /** Tutte le richieste visibili per controllo overlap in modifica (senza filtro mese). */
+  overlapRows?: LeaveRequestRow[];
   profileId: string;
   profileRole: AppRole;
   month: string;
@@ -62,7 +64,15 @@ function useDebouncedValue<T>(value: T, delayMs = 150) {
   return debounced;
 }
 
-export function LeaveRequestsList({ rows, profileId, profileRole, month, day = null }: LeaveRequestsListProps) {
+export function LeaveRequestsList({
+  rows,
+  overlapRows,
+  profileId,
+  profileRole,
+  month,
+  day = null,
+}: LeaveRequestsListProps) {
+  const overlapSource = overlapRows ?? rows;
   const [editingId, setEditingId] = useState<string | null>(null);
   const [draftStart, setDraftStart] = useState("");
   const [draftEnd, setDraftEnd] = useState("");
@@ -75,7 +85,7 @@ export function LeaveRequestsList({ rows, profileId, profileRole, month, day = n
   const overlappingLeave = useMemo(() => {
     if (!editingRow || !debouncedStart || !debouncedEnd) return null;
     return (
-      rows.find(
+      overlapSource.find(
         (r) =>
           r.id !== editingRow.id &&
           r.user_id === editingRow.user_id &&
@@ -83,7 +93,7 @@ export function LeaveRequestsList({ rows, profileId, profileRole, month, day = n
           hasDateOverlap(debouncedStart, debouncedEnd, r.start_date, r.end_date),
       ) ?? null
     );
-  }, [debouncedEnd, debouncedStart, editingRow, rows]);
+  }, [debouncedEnd, debouncedStart, editingRow, overlapSource]);
 
   useEffect(() => {
     if (editingId) {

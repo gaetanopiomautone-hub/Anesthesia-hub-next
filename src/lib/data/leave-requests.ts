@@ -3,30 +3,49 @@ import type { LeaveRequestRow } from "@/lib/domain/leave-request-shared";
 export type { LeaveRequestRow, LeaveRequestStatus, LeaveRequestType } from "@/lib/domain/leave-request-shared";
 export { formatDateItalian, leaveStatusLabelItalian, leaveTypeLabelItalian } from "@/lib/domain/leave-request-shared";
 import { mapLeaveRequestFromDb } from "@/lib/domain/leave-request-db";
-import { isValidYearMonth, monthEndYmd, monthStartYmd } from "@/lib/dates/ymd";
+import { formatYmd, isValidYearMonth, monthEndYmd, monthStartYmd } from "@/lib/dates/ymd";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { profileDisplayName } from "@/lib/utils/profile-display";
 
 export const LEAVE_SELECT =
   "id, user_id, request_type, start_date, end_date, status, reason, reviewed_by, reviewed_at, cancelled_at, created_at";
 
+export type ListLeaveRequestsScope = "calendar" | "all";
+
 export type ListLeaveRequestsOptions = {
-  /** Se impostato, solo richieste che intersecano il mese (`yyyy-MM`). */
+  /** `calendar` = filtro intersezione mese; `all` = lista principale senza mese. */
+  scope?: ListLeaveRequestsScope;
+  /** Solo con scope `calendar`: richieste che intersecano il mese (`yyyy-MM`). */
   yearMonth?: string;
-  /** Senza filtro mese (es. controllo overlap nel form create). */
+  /**
+   * Lista completa visibile al ruolo (senza filtro mese).
+   * Equivalente a `scope: "all"`.
+   */
+  includeAllFuture?: boolean;
+  /** @deprecated Usare `includeAllFuture` o `scope: "all"`. */
   allInView?: boolean;
+  limit?: number;
 };
+
+function resolveListScope(options?: ListLeaveRequestsOptions): ListLeaveRequestsScope {
+  if (options?.scope === "calendar" || options?.scope === "all") return options.scope;
+  if (options?.includeAllFuture || options?.allInView) return "all";
+  if (options?.yearMonth) return "calendar";
+  return "all";
+}
 
 export async function listLeaveRequests(profile: CurrentUserProfile, options?: ListLeaveRequestsOptions) {
   const supabase = await createServerSupabaseClient();
+  const scope = resolveListScope(options);
+  const limit = options?.limit ?? (scope === "calendar" ? 50 : 100);
 
-  let query = supabase.from("leave_requests").select(LEAVE_SELECT).order("created_at", { ascending: false }).limit(50);
+  let query = supabase.from("leave_requests").select(LEAVE_SELECT).order("created_at", { ascending: false }).limit(limit);
 
   if (profile.role === "specializzando") {
     query = query.eq("user_id", profile.id);
   }
 
-  if (!options?.allInView && options?.yearMonth && isValidYearMonth(options.yearMonth)) {
+  if (scope === "calendar" && options?.yearMonth && isValidYearMonth(options.yearMonth)) {
     query = query.lte("start_date", monthEndYmd(options.yearMonth)).gte("end_date", monthStartYmd(options.yearMonth));
   }
 
