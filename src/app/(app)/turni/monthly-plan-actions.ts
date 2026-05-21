@@ -31,6 +31,16 @@ const SALA_MATTINA_START = "08:00:00";
 const SALA_MATTINA_END = "14:00:00";
 const SALA_POMERIGGIO_START = "14:00:00";
 const SALA_POMERIGGIO_END = "20:00:00";
+/** Allineati a `planning-parser` per reperibilità giornaliera */
+const REPERIBILITA_START = "08:00:00";
+const REPERIBILITA_END = "20:00:00";
+
+const DELETABLE_PLANNING_SLOT_KINDS = ["sala", "reperibilita"] as const;
+type DeletablePlanningSlotKind = (typeof DELETABLE_PLANNING_SLOT_KINDS)[number];
+
+function deletableSlotKindLabelItalian(kind: DeletablePlanningSlotKind): string {
+  return kind === "reperibilita" ? "reperibilità" : "sala";
+}
 
 function createServiceRoleSupabaseClient() {
   const { url } = getSupabaseEnv();
@@ -156,7 +166,7 @@ function planCalendarMatchesYearMonth(planYear: number, planMonth: number, yearM
 }
 
 /**
- * Elimina una riga `shift_items` (solo kind sala) dal planning. Solo admin in bozza (non inviato/approvato).
+ * Elimina una riga `shift_items` (sala o reperibilità) dal planning. Solo admin in bozza (non inviato/approvato).
  * Uses service role; non tocca `clinical_locations`.
  */
 export async function deletePlanningSlotAction(
@@ -180,7 +190,7 @@ export async function deletePlanningSlotAction(
     z.string().uuid().parse(shiftItemId);
 
     if (profile.role !== "admin") {
-      return fail("Solo gli amministratori possono eliminare slot sala dal piano.");
+      return fail("Solo gli amministratori possono eliminare slot dal piano.");
     }
 
     const supabaseAdmin = createServiceRoleSupabaseClient();
@@ -216,14 +226,13 @@ export async function deletePlanningSlotAction(
       )
       .eq("id", shiftItemId)
       .eq("plan_id", planId)
-      .eq("kind", "sala")
       .maybeSingle();
 
     if (itemErr) {
       return fail(humanizePostgrestRlsError(itemErr.message));
     }
     if (!itemRaw) {
-      return fail("Slot sala non trovato per questo piano.");
+      return fail("Turno non trovato per questo piano.");
     }
 
     const item = itemRaw as {
@@ -241,19 +250,24 @@ export async function deletePlanningSlotAction(
       assigned_to: string | null;
     };
 
+    if (!DELETABLE_PLANNING_SLOT_KINDS.includes(item.kind as DeletablePlanningSlotKind)) {
+      return fail("Questo tipo di turno non può essere eliminato da qui.");
+    }
+    const slotKind = item.kind as DeletablePlanningSlotKind;
+
     const { data: deletedRows, error: delErr } = await supabaseAdmin
       .from("shift_items")
       .delete()
       .eq("id", shiftItemId)
       .eq("plan_id", planId)
-      .eq("kind", "sala")
+      .eq("kind", slotKind)
       .select("id");
 
     if (delErr) {
       return fail(humanizePostgrestRlsError(delErr.message));
     }
     if (!deletedRows?.length) {
-      return fail("Nessuno slot è stato rimosso (dato non più disponibile).");
+      return fail(`Nessuna ${deletableSlotKindLabelItalian(slotKind)} è stata rimossa (dato non più disponibile).`);
     }
 
     try {
@@ -451,6 +465,129 @@ export async function addPlanningSlotAction(
       ]);
     } catch (auditError) {
       console.error("add_planning_slot audit failed", {
+        planId,
+        message: auditError instanceof Error ? auditError.message : String(auditError),
+      });
+    }
+
+    revalidatePath("/turni");
+    return { ok: true };
+  } catch (e) {
+    if (e instanceof z.ZodError) {
+      return fail("Valore non valido");
+    }
+    return fail(e instanceof Error ? humanizePostgrestRlsError(e.message) : "Errore imprevisto");
+  }
+}
+
+/**
+ * Aggiunge una riga `shift_items` di reperibilità per un giorno del piano.
+ * RLS: insert solo admin (service role).
+ */
+export async function addPlanningReperibilitaSlotAction(
+  _prevState: AddPlanningSlotState | null,
+  formData: FormData,
+): Promise<AddPlanningSlotState> {
+  const profile = await requireUser();
+  const planId = String(formData.get("planId") ?? "");
+  const date = String(formData.get("date") ?? "");
+  const month = String(formData.get("month") ?? "");
+
+  if (!yearMonthSchema.safeParse(month).success) return { ok: false, error: "Mese non valido." };
+
+  const fail = (message: string): AddPlanningSlotState => ({ ok: false, error: message });
+
+  try {
+    isoDateSchema.parse(date);
+    z.string().uuid().parse(planId);
+
+    if (profile.role !== "admin") {
+      return fail("Solo gli amministratori possono aggiungere reperibilità al piano.");
+    }
+
+    const supabaseAdmin = createServiceRoleSupabaseClient();
+    const { data: planRaw, error: planErr } = await supabaseAdmin
+      .from("monthly_shift_plans")
+      .select("id,year,month,status")
+      .eq("id", planId)
+      .maybeSingle();
+    if (planErr) {
+      return fail(humanizePostgrestRlsError(planErr.message));
+    }
+    if (!planRaw) {
+      return fail("Piano non trovato.");
+    }
+    const planRow = planRaw as { id: string; year: number; month: number; status: string };
+    if (planRow.status === "approved") {
+      return fail("Il piano è approvato: non puoi aggiungere reperibilità.");
+    }
+
+    const dateObj = parseISO(date);
+    if (!isValid(dateObj)) {
+      return fail("Data non valida.");
+    }
+    if (dateObj.getFullYear() !== planRow.year || dateObj.getMonth() + 1 !== planRow.month) {
+      return fail("La data deve appartenere al mese del piano.");
+    }
+
+    const { data: dup, error: dupErr } = await supabaseAdmin
+      .from("shift_items")
+      .select("id")
+      .eq("plan_id", planId)
+      .eq("shift_date", date)
+      .eq("kind", "reperibilita")
+      .maybeSingle();
+
+    if (dupErr) {
+      return fail(humanizePostgrestRlsError(dupErr.message));
+    }
+    if (dup) {
+      return fail("Esiste già una reperibilità per questo giorno.");
+    }
+
+    const { data: inserted, error: insErr } = await supabaseAdmin
+      .from("shift_items")
+      .insert({
+        plan_id: planId,
+        shift_date: date,
+        kind: "reperibilita",
+        period: "reperibilita",
+        start_time: REPERIBILITA_START,
+        end_time: REPERIBILITA_END,
+        label: "Reperibilità",
+        room_name: null,
+        specialty: null,
+        source: "manual",
+      })
+      .select("id")
+      .single();
+
+    if (insErr) {
+      return fail(humanizePostgrestRlsError(insErr.message));
+    }
+    if (!inserted) {
+      return fail("Inserimento non riuscito.");
+    }
+
+    try {
+      await insertPlanningChangeLogs([
+        {
+          planning_month_id: planId,
+          shift_id: String((inserted as { id: string }).id),
+          actor_user_id: profile.id,
+          action: "created",
+          before_data: null,
+          after_data: {
+            shift_date: date,
+            period: "reperibilita",
+            kind: "reperibilita",
+            label: "Reperibilità",
+            source: "manual",
+          },
+        },
+      ]);
+    } catch (auditError) {
+      console.error("add_planning_reperibilita audit failed", {
         planId,
         message: auditError instanceof Error ? auditError.message : String(auditError),
       });

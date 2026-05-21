@@ -10,6 +10,7 @@ import { groupAssigneesByClinicalAreaHint } from "@/lib/domain/shift-assignee-ar
 
 import {
   addPlanningSlotAction,
+  addPlanningReperibilitaSlotAction,
   type AddPlanningSlotState,
   deletePlanningSlotAction,
   type DeletePlanningSlotState,
@@ -217,14 +218,18 @@ function AddPlanningSalaSlotRow({
   );
 }
 
-function DeletePlanningSalaSlotForm({
+function DeletePlanningSlotForm({
   shiftItemId,
   planId,
   yearMonth,
+  label,
+  successMessage,
 }: {
   shiftItemId: string;
   planId: string;
   yearMonth: string;
+  label: string;
+  successMessage: string;
 }) {
   const router = useRouter();
   const [slotState, formAction, isPending] = useActionState<DeletePlanningSlotState | null, FormData>(
@@ -244,11 +249,11 @@ function DeletePlanningSalaSlotForm({
       <input type="hidden" name="planId" value={planId} />
       <input type="hidden" name="month" value={yearMonth} />
       <Button type="submit" variant="outline" size="sm" className="h-7 w-fit text-xs text-rose-800 dark:text-rose-300" disabled={isPending}>
-        {isPending ? "Eliminazione..." : "Elimina sala"}
+        {isPending ? "Eliminazione..." : label}
       </Button>
       {slotState?.ok ? (
         <p className="text-[0.7rem] text-emerald-700" role="status">
-          Sala rimossa dal planning.
+          {successMessage}
         </p>
       ) : null}
       {slotState && !slotState.ok ? (
@@ -256,6 +261,40 @@ function DeletePlanningSalaSlotForm({
           {slotState.error}
         </p>
       ) : null}
+    </form>
+  );
+}
+
+function AddPlanningReperibilitaSlotRow({
+  planId,
+  shiftDate,
+  yearMonth,
+}: {
+  planId: string;
+  shiftDate: string;
+  yearMonth: string;
+}) {
+  const [slotState, formAction, isPending] = useActionState<AddPlanningSlotState | null, FormData>(
+    addPlanningReperibilitaSlotAction,
+    null,
+  );
+
+  return (
+    <form action={formAction} className="mt-2 border-t border-dashed border-border/80 pt-2">
+      <input type="hidden" name="planId" value={planId} />
+      <input type="hidden" name="date" value={shiftDate} />
+      <input type="hidden" name="month" value={yearMonth} />
+      <Button
+        type="submit"
+        variant="outline"
+        size="sm"
+        className="h-8 text-xs"
+        disabled={isPending}
+      >
+        {isPending ? "Salvataggio..." : "Aggiungi reperibilità"}
+      </Button>
+      {slotState?.ok ? <p className="mt-1 text-[0.7rem] text-emerald-700">Reperibilità aggiunta correttamente.</p> : null}
+      {!slotState?.ok && slotState?.error ? <p className="mt-1 text-[0.7rem] text-rose-700">{slotState.error}</p> : null}
     </form>
   );
 }
@@ -434,6 +473,7 @@ function TurniItemRow({
   onAssign,
   selectedQuickAssigneeId,
   deleteSalaPlanning,
+  deleteReperibilitaPlanning,
   salaAreaSelectOptions,
   assignmentLocationSelectOptions,
   weeklyExcessUserIds,
@@ -455,6 +495,8 @@ function TurniItemRow({
   selectedQuickAssigneeId: string | null;
   /** Admin + piano in bozza: elimina slot sala (solo righe kind sala). */
   deleteSalaPlanning?: { planId: string; yearMonth: string } | null;
+  /** Admin + piano in bozza: elimina reperibilità. */
+  deleteReperibilitaPlanning?: { planId: string; yearMonth: string } | null;
   /** Aree attive per cambio area su slot sala (solo bozza). */
   salaAreaSelectOptions?: SalaAddOption[];
   /** Sale attive per cambio assegnazione su slot sala (solo bozza). */
@@ -675,10 +717,23 @@ function TurniItemRow({
         ) : null}
         {item.kind === "sala" && deleteSalaPlanning ? (
           <div data-no-quick-assign>
-            <DeletePlanningSalaSlotForm
+            <DeletePlanningSlotForm
               shiftItemId={item.id}
               planId={deleteSalaPlanning.planId}
               yearMonth={deleteSalaPlanning.yearMonth}
+              label="Elimina sala"
+              successMessage="Sala rimossa dal planning."
+            />
+          </div>
+        ) : null}
+        {item.kind === "reperibilita" && deleteReperibilitaPlanning ? (
+          <div data-no-quick-assign>
+            <DeletePlanningSlotForm
+              shiftItemId={item.id}
+              planId={deleteReperibilitaPlanning.planId}
+              yearMonth={deleteReperibilitaPlanning.yearMonth}
+              label="Elimina reperibilità"
+              successMessage="Reperibilità rimossa dal planning."
             />
           </div>
         ) : null}
@@ -776,7 +831,9 @@ function BlockSection({
   rowErrors,
   conflictItemIds,
   addSalaSlot,
+  addReperibilitaSlot,
   deleteSalaPlanning,
+  deleteReperibilitaPlanning,
   salaAreaSelectOptions,
   assignmentLocationSelectOptions,
   weeklyExcessUserIds,
@@ -807,7 +864,9 @@ function BlockSection({
     locations: SalaAddOption[];
     assignmentLocations: PlanningAssignmentLocationOption[];
   } | null;
+  addReperibilitaSlot?: { planId: string; shiftDate: string; yearMonth: string } | null;
   deleteSalaPlanning?: { planId: string; yearMonth: string } | null;
+  deleteReperibilitaPlanning?: { planId: string; yearMonth: string } | null;
   salaAreaSelectOptions?: SalaAddOption[];
   assignmentLocationSelectOptions?: PlanningAssignmentLocationOption[];
   traineeCompetencyRows: TraineeLocationCompetencyInput[];
@@ -850,6 +909,7 @@ function BlockSection({
               onAssign={(userId) => onAssignItem(item.id, userId)}
               selectedQuickAssigneeId={selectedQuickAssigneeId}
               deleteSalaPlanning={deleteSalaPlanning}
+              deleteReperibilitaPlanning={deleteReperibilitaPlanning}
               salaAreaSelectOptions={salaAreaSelectOptions}
               assignmentLocationSelectOptions={assignmentLocationSelectOptions}
               weeklyExcessUserIds={weeklyExcessUserIds}
@@ -869,6 +929,13 @@ function BlockSection({
           assignmentLocations={addSalaSlot.assignmentLocations}
         />
       ) : null}
+      {addReperibilitaSlot ? (
+        <AddPlanningReperibilitaSlotRow
+          planId={addReperibilitaSlot.planId}
+          shiftDate={addReperibilitaSlot.shiftDate}
+          yearMonth={addReperibilitaSlot.yearMonth}
+        />
+      ) : null}
     </div>
   );
 }
@@ -886,7 +953,9 @@ function DayCard({
   rowErrors,
   conflictItemIds,
   salaPlanningAdd,
+  reperibilitaPlanningAdd,
   salaDeletePlanning,
+  reperibilitaDeletePlanning,
   salaAreaSelectOptions,
   assignmentLocationSelectOptions,
   weeklyExcessUserIds,
@@ -915,7 +984,10 @@ function DayCard({
     locations: SalaAddOption[];
     assignmentLocations: PlanningAssignmentLocationOption[];
   } | null;
+  /** Aggiungi reperibilità (admin) per il giorno. */
+  reperibilitaPlanningAdd?: { planId: string; yearMonth: string } | null;
   salaDeletePlanning?: { planId: string; yearMonth: string } | null;
+  reperibilitaDeletePlanning?: { planId: string; yearMonth: string } | null;
   salaAreaSelectOptions?: SalaAddOption[];
   assignmentLocationSelectOptions?: PlanningAssignmentLocationOption[];
   traineeCompetencyRows: TraineeLocationCompetencyInput[];
@@ -941,6 +1013,14 @@ function DayCard({
         assignmentLocations: salaPlanningAdd.assignmentLocations,
       }
     : null;
+  const addReperibilita =
+    reperibilitaPlanningAdd && g.reperibilita.length === 0
+      ? {
+          planId: reperibilitaPlanningAdd.planId,
+          yearMonth: reperibilitaPlanningAdd.yearMonth,
+          shiftDate: date,
+        }
+      : null;
 
   return (
     <section
@@ -1024,6 +1104,7 @@ function DayCard({
         />
         <BlockSection
           title="Reperibilità"
+          timeHint="08–20"
           rows={g.reperibilita}
           canEdit={canEdit}
           assignReadOnlyTitle={assignReadOnlyTitle}
@@ -1038,7 +1119,8 @@ function DayCard({
           conflictItemIds={conflictItemIds}
           weeklyExcessUserIds={weeklyExcessUserIds}
           shiftConflictMessages={shiftConflictMessages}
-          deleteSalaPlanning={null}
+          addReperibilitaSlot={addReperibilita}
+          deleteReperibilitaPlanning={reperibilitaDeletePlanning}
           assignmentLocationSelectOptions={assignmentLocationSelectOptions}
           traineeCompetencyRows={traineeCompetencyRows}
         />
@@ -1447,6 +1529,13 @@ export function TurniMonthView({
     return { planId: plan.id, yearMonth };
   }, [isAdmin, plan.id, plan.status, yearMonth]);
 
+  const reperibilitaPlanningAdd = useMemo(() => {
+    if (!isAdmin || planIsApproved) return null;
+    return { planId: plan.id, yearMonth };
+  }, [isAdmin, planIsApproved, plan.id, yearMonth]);
+
+  const reperibilitaDeletePlanning = salaDeletePlanning;
+
   if (specializzandoPrepublishMode && currentUserRole === "specializzando") {
     return (
       <div className="space-y-6">
@@ -1721,8 +1810,8 @@ export function TurniMonthView({
                 </>
               ) : (
                 <p className="text-xs text-muted-foreground">
-                  Seleziona un collega, poi clicca gli slot in sala o ambulatorio. La reperibilità resta dal menu a
-                  tendina.
+                  Seleziona un collega, poi clicca gli slot in sala o ambulatorio. Per la reperibilità usa il menu a
+                  tendina su ogni slot; aggiungi o rimuovi giorni dalla scheda del giorno.
                 </p>
               )}
             </div>
@@ -2053,7 +2142,9 @@ export function TurniMonthView({
                   rowErrors={rowErrors}
                   conflictItemIds={conflictItemIds}
                   salaPlanningAdd={salaPlanningAdd}
+                  reperibilitaPlanningAdd={reperibilitaPlanningAdd}
                   salaDeletePlanning={salaDeletePlanning}
+                  reperibilitaDeletePlanning={reperibilitaDeletePlanning}
                   salaAreaSelectOptions={salaLocationsForPlanning}
                   assignmentLocationSelectOptions={assignmentLocationsForPlanning}
                   weeklyExcessUserIds={weeklyExcessUserIds}
@@ -2079,7 +2170,9 @@ export function TurniMonthView({
               rowErrors={rowErrors}
               conflictItemIds={conflictItemIds}
               salaPlanningAdd={salaPlanningAdd}
+              reperibilitaPlanningAdd={reperibilitaPlanningAdd}
               salaDeletePlanning={salaDeletePlanning}
+              reperibilitaDeletePlanning={reperibilitaDeletePlanning}
               salaAreaSelectOptions={salaLocationsForPlanning}
               assignmentLocationSelectOptions={assignmentLocationsForPlanning}
               weeklyExcessUserIds={weeklyExcessUserIds}
