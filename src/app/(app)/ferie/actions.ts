@@ -23,7 +23,10 @@ import {
   mapLeaveRequestToDbUpdate,
 } from "@/lib/domain/leave-request-db";
 import { canCancelLeaveRequest } from "@/lib/domain/leave-request-permissions";
-import { LEAVE_REQUEST_DB_STATUS } from "@/lib/domain/leave-requests-db-contract";
+import {
+  cancellableLeaveDbStatuses,
+  LEAVE_REQUEST_DB_STATUS,
+} from "@/lib/domain/leave-requests-db-contract";
 import { getMonthParam } from "@/lib/dates/ymd";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -442,35 +445,44 @@ export async function cancelLeaveRequestAction(formData: FormData) {
     redirectToFerieWithError("Puoi annullare solo richieste ancora in attesa.", { month, day });
   }
 
-  const isScheduler = profile.role === "tutor" || profile.role === "admin";
+  const isSchedulerOrAdmin = profile.role === "tutor" || profile.role === "admin";
   const isOwnerTrainee = profile.role === "specializzando" && existing.user_id === profile.id;
 
-  if (!isOwnerTrainee && !isScheduler) {
+  if (!isOwnerTrainee && !isSchedulerOrAdmin) {
     redirectToFerieWithError("Non hai permessi per annullare questa richiesta.", { month, day });
   }
+
+  const cancellableStatuses = cancellableLeaveDbStatuses(isSchedulerOrAdmin);
 
   let updateQuery = supabase
     .from("leave_requests")
     .update(mapLeaveRequestToDbCancel(new Date().toISOString(), existing))
-    .eq("id", parsed.id);
+    .eq("id", parsed.id)
+    .in("status", cancellableStatuses);
 
-  if (isOwnerTrainee) {
-    updateQuery = updateQuery.eq("user_id", profile.id).eq("status", LEAVE_REQUEST_DB_STATUS.pending);
-  } else {
-    updateQuery = updateQuery.in("status", [
-      LEAVE_REQUEST_DB_STATUS.pending,
-      LEAVE_REQUEST_DB_STATUS.approved,
-    ]);
+  if (!isSchedulerOrAdmin) {
+    updateQuery = updateQuery.eq("user_id", profile.id);
   }
 
   const { data: updated, error } = await updateQuery.select("id");
 
   if (error) {
-    redirectToFerieWithError(friendlyPostgresMessage(error), { month, day });
+    const hint =
+      error.code === "23514"
+        ? " Vincolo leave_requests_approval_integrity: applica le migration ferie più recenti (supabase db push)."
+        : error.code === "42501"
+          ? " Policy RLS mancante: verifica leave_update_scheduler_admin_cancel in produzione (supabase db push)."
+          : "";
+    redirectToFerieWithError(`${friendlyPostgresMessage(error)}${hint}`, { month, day });
   }
 
   if (!updated?.length) {
-    redirectToFerieWithError("Richiesta già elaborata o non più annullabile.", { month, day });
+    redirectToFerieWithError(
+      isSchedulerOrAdmin && existing.status === "approved"
+        ? "Impossibile annullare: verifica in Supabase la policy leave_update_scheduler_admin_cancel e il vincolo annullato con reviewed_by/at (supabase db push)."
+        : "Richiesta già elaborata o non più annullabile.",
+      { month, day },
+    );
   }
 
   revalidateLeaveViews();

@@ -48,6 +48,13 @@ export const LEAVE_REQUEST_DB_STATUS = {
   cancelled: "annullato",
 } as const satisfies Record<string, (typeof LEAVE_REQUESTS_STATUSES)[number]>;
 
+/** Stati aggiornabili verso `annullato` per ruolo (filtro PostgREST `.in("status", …)`). */
+export function cancellableLeaveDbStatuses(isSchedulerOrAdmin: boolean): (typeof LEAVE_REQUESTS_STATUSES)[number][] {
+  return isSchedulerOrAdmin
+    ? [LEAVE_REQUEST_DB_STATUS.pending, LEAVE_REQUEST_DB_STATUS.approved]
+    : [LEAVE_REQUEST_DB_STATUS.pending];
+}
+
 /** Stati che partecipano al controllo overlap server-side. */
 export const LEAVE_REQUESTS_ACTIVE_OVERLAP_STATUSES = ["in_attesa", "approvato"] as const;
 
