@@ -1,3 +1,6 @@
+import { format } from "date-fns";
+import { it } from "date-fns/locale";
+
 const YMD_RE = /^(\d{4})-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
 const YEAR_MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/;
 
@@ -112,4 +115,23 @@ export function monthEndYmd(yearMonth: string): string {
   const year = Number(yearRaw);
   const month = Number(monthRaw);
   return formatYmd(new Date(year, month, 0, 12, 0, 0, 0));
+}
+
+/** Sposta un `yyyy-MM` di `delta` mesi (es. `addMonthsToYearMonth("2026-05", 1)` → `2026-06`). */
+export function addMonthsToYearMonth(yearMonth: string, delta: number): string {
+  if (!isValidYearMonth(yearMonth)) {
+    throw new Error(`Invalid year-month: ${yearMonth}`);
+  }
+  const [yearRaw, monthRaw] = yearMonth.split("-");
+  const year = Number(yearRaw);
+  const month = Number(monthRaw);
+  const shifted = new Date(year, month - 1 + delta, 1, 12, 0, 0, 0);
+  const y = shifted.getFullYear();
+  const m = String(shifted.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+}
+
+/** Etichetta leggibile per navigazione calendario (es. `Maggio 2026`). */
+export function formatYearMonthLabel(yearMonth: string): string {
+  return format(toLocalDateFromYmd(monthStartYmd(yearMonth)), "MMMM yyyy", { locale: it });
 }

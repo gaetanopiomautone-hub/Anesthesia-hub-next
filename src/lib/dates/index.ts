@@ -1,6 +1,8 @@
 export {
   addDaysYmd,
+  addMonthsToYearMonth,
   compareYmd,
+  formatYearMonthLabel,
   formatYmd,
   getMonthParam,
   isValidYearMonth,

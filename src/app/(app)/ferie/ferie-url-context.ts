@@ -28,6 +28,10 @@ export function parseFerieContextFromForm(formData: FormData): FerieContext {
   return { month, day };
 }
 
+export function feriePathForMonth(month: string, day?: string | null) {
+  return feriePathWithContext({ month, day: day ?? null });
+}
+
 export function feriePathWithContext(context: FeriePathContext) {
   const queryParams = new URLSearchParams();
   if (context.month) {

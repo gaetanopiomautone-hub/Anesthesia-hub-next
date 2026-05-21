@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/card";
 import type { LeaveRequestRow } from "@/lib/domain/leave-request-shared";
 import type { FerieCalendarBlock } from "@/lib/domain/leave-calendar-markers";
 
+import { FerieMonthNav } from "./ferie-month-nav";
 import { MonthCalendar } from "./month-calendar";
 
 type FerieMonthViewProps = {
@@ -47,6 +48,7 @@ export function FerieMonthView({
       title="Calendario mese"
       description="Bordo = tipo (ferie blu, congresso viola, lezione arancione). Pill = stato approvazione ferie. Clicca un giorno per filtrare la lista sotto."
     >
+      <FerieMonthNav yearMonth={yearMonth} selectedDay={selectedDate} />
       <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <span className="font-medium text-foreground">Tipo:</span>
         <span className="inline-flex items-center gap-1 rounded-full border border-blue-500 bg-blue-50/60 px-2 py-0.5">

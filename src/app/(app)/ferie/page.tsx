@@ -1,5 +1,6 @@
 import { format } from "date-fns";
 import { it } from "date-fns/locale";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { PageHeader } from "@/components/layout/page-header";
@@ -8,7 +9,7 @@ import { requireSection } from "@/lib/auth/get-current-user-profile";
 import { hasDateOverlap } from "@/lib/dates/hasDateOverlap";
 import { normalizeDayInMonth } from "@/lib/dates/day-in-month";
 import { getMonthContext } from "@/lib/dates/getMonthContext";
-import { compareYmd, formatYmd, monthEndYmd, monthStartYmd, toLocalDateFromYmd } from "@/lib/dates/ymd";
+import { compareYmd, formatYmd, formatYearMonthLabel, monthEndYmd, monthStartYmd, toLocalDateFromYmd } from "@/lib/dates/ymd";
 import { listFerieCalendarBlocksForMonth } from "@/lib/data/ferie-calendar-blocks";
 import { LEAVE_OVERLAP_ERROR_MESSAGE } from "@/lib/data/leave-request-overlap";
 import { listLeaveRequests } from "@/lib/data/leave-requests";
@@ -16,6 +17,7 @@ import { listLeaveRequests } from "@/lib/data/leave-requests";
 import {
   createLeaveRequestAction,
 } from "./actions";
+import { feriePathForMonth } from "./ferie-url-context";
 import { ClearOkParam } from "./clear-ok-param";
 import { FerieMonthView } from "./ferie-month-view";
 import { LeaveRequestsList } from "./leave-requests-list";
@@ -30,12 +32,6 @@ type FeriePageProps = {
     ok?: "created" | "updated" | "approved" | "rejected" | "cancelled" | string;
   }>;
 };
-
-/** Contesto calendario (solo visualizzazione mese). */
-function resolveMonthViewLabel(monthParam: string) {
-  const startYmd = monthStartYmd(monthParam);
-  return format(toLocalDateFromYmd(startYmd), "MMMM yyyy", { locale: it });
-}
 
 /** Date form: da oggi in avanti, senza limite al mese visualizzato. */
 function resolveLeaveFormDateDefaults(params: { day: string | null; viewMonth: string }) {
@@ -75,9 +71,14 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
   const actionError = params?.error?.trim() ? params.error.trim() : null;
   const actionErrorCode = params?.errorCode?.trim() ? params.errorCode.trim() : null;
   const actionOk = params?.ok?.trim() || null;
-  const monthViewLabel = resolveMonthViewLabel(monthContextBase.yearMonth);
+  const monthViewLabel = formatYearMonthLabel(monthContextBase.yearMonth);
+  const todayYmd = formatYmd(new Date());
+  const formDay =
+    normalizedDay && compareYmd(normalizedDay, todayYmd) >= 0 ? normalizedDay : null;
+  const pastSelectedDay =
+    normalizedDay && compareYmd(normalizedDay, todayYmd) < 0 ? normalizedDay : null;
   const formDates = resolveLeaveFormDateDefaults({
-    day: normalizedDay,
+    day: formDay,
     viewMonth: monthContextBase.yearMonth,
   });
 
@@ -140,20 +141,37 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
         <div id="new-leave-request">
           <Card title="Nuova richiesta">
           {canCreate ? (
-            <NewLeaveRequestForm
-              action={createLeaveRequestAction}
-              month={monthContextBase.yearMonth}
-              day={normalizedDay}
-              monthLabel={monthViewLabel}
-              defaultStartDate={formDates.defaultStartDate}
-              defaultEndDate={formDates.defaultEndDate}
-              minDate={formDates.minDate}
-              existingLeaves={visibleRequests.map((row) => ({
-                start: row.start_date,
-                end: row.end_date,
-                status: row.status,
-              }))}
-            />
+            pastSelectedDay ? (
+              <div className="space-y-3 text-sm text-muted-foreground">
+                <p>
+                  Hai selezionato il{" "}
+                  <strong>{format(toLocalDateFromYmd(pastSelectedDay), "dd/MM/yyyy", { locale: it })}</strong>, un
+                  giorno nel passato. Puoi consultare richieste e calendario, ma le nuove richieste partono da oggi in
+                  avanti.
+                </p>
+                <Link
+                  href={feriePathForMonth(monthContextBase.yearMonth)}
+                  className="font-medium text-primary hover:underline"
+                >
+                  Rimuovi filtro giorno
+                </Link>
+              </div>
+            ) : (
+              <NewLeaveRequestForm
+                action={createLeaveRequestAction}
+                month={monthContextBase.yearMonth}
+                day={formDay}
+                monthLabel={monthViewLabel}
+                defaultStartDate={formDates.defaultStartDate}
+                defaultEndDate={formDates.defaultEndDate}
+                minDate={formDates.minDate}
+                existingLeaves={visibleRequests.map((row) => ({
+                  start: row.start_date,
+                  end: row.end_date,
+                  status: row.status,
+                }))}
+              />
+            )
           ) : (
             <p className="text-sm text-muted-foreground">
               Solo gli specializzandi possono creare nuove richieste. Da qui puoi consultare lo storico e, se abilitato, gestire le approvazioni.
@@ -176,9 +194,9 @@ export default async function FeriePage({ searchParams }: FeriePageProps) {
             <p className="mb-3 text-xs text-muted-foreground">
               Filtro giorno dal calendario: <strong>{format(toLocalDateFromYmd(normalizedDay), "dd/MM/yyyy", { locale: it })}</strong>
               {" "}
-              <a href={`/ferie?month=${monthContextBase.yearMonth}`} className="underline hover:text-foreground">
+              <Link href={feriePathForMonth(monthContextBase.yearMonth)} className="underline hover:text-foreground">
                 Mostra tutte
-              </a>
+              </Link>
             </p>
           ) : null}
 
