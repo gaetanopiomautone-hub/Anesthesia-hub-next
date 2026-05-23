@@ -169,7 +169,7 @@ export function EditUserForm({ initial }: { initial: EditUserInitial }) {
               </select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="eu-asseg">Assegnazione</Label>
+              <Label htmlFor="eu-asseg">Assegnazione operativa (turni)</Label>
               <select
                 id="eu-asseg"
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
@@ -184,6 +184,9 @@ export function EditUserForm({ initial }: { initial: EditUserInitial }) {
                   </option>
                 ))}
               </select>
+              <p className="text-xs text-muted-foreground">
+                Usata subito in compilazione turni. Lo storico con date è nella sezione «Periodi di assegnazione» sotto.
+              </p>
             </div>
           </div>
         </div>

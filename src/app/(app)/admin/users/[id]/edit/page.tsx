@@ -11,7 +11,10 @@ import { parseProfileGender } from "@/lib/domain/profile-greeting";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 import { nomeCognomeFromProfileRow } from "@/lib/utils/profile-display";
 
+import { listTraineeAssignmentPeriodsForUser } from "@/lib/data/trainee-assignment-periods";
+
 import { EditUserForm, type EditUserInitial } from "./edit-user-form";
+import { TraineeAssignmentPeriodsSection } from "./trainee-assignment-periods-section";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -44,6 +47,9 @@ export default async function AdminEditUserPage({ params }: PageProps) {
 
   const spez = pickSpecializzandiProfilesEmbed(spezRow ?? null);
 
+  const assignmentPeriods =
+    role === "specializzando" ? await listTraineeAssignmentPeriodsForUser(id) : [];
+
   const initial: EditUserInitial = {
     id: String(raw.id),
     nome: nc.nome,
@@ -73,6 +79,12 @@ export default async function AdminEditUserPage({ params }: PageProps) {
       <Card title="Profilo utente">
         <EditUserForm initial={initial} />
       </Card>
+
+      {role === "specializzando" ? (
+        <Card title="Periodi di assegnazione">
+          <TraineeAssignmentPeriodsSection traineeId={id} periods={assignmentPeriods} />
+        </Card>
+      ) : null}
     </div>
   );
 }

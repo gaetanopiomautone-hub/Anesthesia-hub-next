@@ -8,9 +8,9 @@ export const ASSEGNAZIONE_SPECIALIZZANDO_VALUES = [
 export type AssegnazioneSpecializzando = (typeof ASSEGNAZIONE_SPECIALIZZANDO_VALUES)[number];
 
 export const ASSEGNAZIONE_LABEL_IT: Record<AssegnazioneSpecializzando, string> = {
-  rianimazione: "Rianimazione",
+  rianimazione: "Rianimazione base",
   sala_base: "Sala base",
-  sala_locoregionale: "Sala loco-regionale",
+  sala_locoregionale: "Sala ortopedica",
   sala_avanzata: "Sala avanzata",
 };
 
