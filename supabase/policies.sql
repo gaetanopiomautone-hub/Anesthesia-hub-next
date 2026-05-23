@@ -348,13 +348,15 @@ using (true);
 alter table public.logbook_entries enable row level security;
 
 drop policy if exists "logbook_select_own_or_admin" on public.logbook_entries;
-create policy "logbook_select_own_or_admin"
+drop policy if exists "logbook_select_own_admin_tutor" on public.logbook_entries;
+create policy "logbook_select_own_admin_tutor"
 on public.logbook_entries
 for select
 to authenticated
 using (
   trainee_profile_id = auth.uid()
-  or public.get_my_role() = 'admin'
+  or public.is_admin()
+  or public.is_tutor()
 );
 
 drop policy if exists "logbook_insert_own" on public.logbook_entries;

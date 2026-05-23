@@ -3,7 +3,8 @@ import { requireSection } from "@/lib/auth/get-current-user-profile";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { roleLabels } from "@/lib/auth/roles";
-import { autonomyLabel, getDashboardData, leaveStatusLabel, supervisionLabel } from "@/lib/data/dashboard";
+import { getDashboardData, leaveStatusLabel } from "@/lib/data/dashboard";
+import { participationRoleLabel, procedureCatalogLabel } from "@/lib/data/logbook";
 import { leaveTypeLabelItalian } from "@/lib/data/leave-requests";
 import { TraineeMyWeekCard } from "@/app/(app)/dashboard/trainee-my-week-card";
 import { loadTraineeDashboardCurrentWeek } from "@/lib/data/trainee-dashboard-week";
@@ -105,12 +106,14 @@ export default async function DashboardPage() {
               dashboard.logbookRows.map((entry) => (
                 <div key={entry.id} className="rounded-2xl border border-border p-4">
                   <div className="flex items-center justify-between gap-3">
-                    <p className="font-medium">{entry.procedure_catalog?.name ?? "Procedura"}</p>
-                    <Badge>{autonomyLabel(entry.autonomy_level)}</Badge>
+                    <p className="font-medium">
+                      {entry.procedure_catalog ? procedureCatalogLabel(entry.procedure_catalog) : "Procedura"}
+                    </p>
+                    <Badge>{participationRoleLabel(entry.participation_role)}</Badge>
                   </div>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    {dashboard.formatDate(entry.performed_on)} · Supervisione {supervisionLabel(entry.supervision_level)} ·
-                    Confidenza {entry.confidence_level}/5
+                    {dashboard.formatDate(entry.performed_on)} · Qtà {entry.quantity} ·{" "}
+                    {participationRoleLabel(entry.participation_role)}
                   </p>
                 </div>
               ))

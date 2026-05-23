@@ -2,7 +2,12 @@ import { endOfMonth, endOfWeek, format, startOfMonth, startOfWeek, subMonths } f
 import { it } from "date-fns/locale";
 
 import type { CurrentUserProfile } from "@/lib/auth/get-current-user-profile";
+import { formatProcedureCatalogPath } from "@/lib/domain/logbook-procedure-catalog";
+import type { LogbookParticipationRole } from "@/lib/domain/logbook-participation";
+import { participationRoleLabel } from "@/lib/domain/logbook-participation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+
+export { participationRoleLabel };
 
 /** Ordine come su DB legacy → schema corrente. */
 export const LOGBOOK_TRAINEE_COLUMNS = ["user_id", "trainee_profile_id", "trainee_id"] as const;
@@ -37,21 +42,41 @@ export type ProcedureCatalogRow = {
   id: string;
   name: string;
   category: string;
+  procedure_name: string;
+  subtype: string | null;
   description: string | null;
   active: boolean;
 };
+
+export function procedureCatalogLabel(row: Pick<ProcedureCatalogRow, "category" | "procedure_name" | "subtype" | "name">) {
+  if (row.procedure_name?.trim()) {
+    return formatProcedureCatalogPath({
+      category: row.category,
+      procedure: row.procedure_name,
+      subtype: row.subtype,
+    });
+  }
+  return row.name?.trim() || "Procedura";
+}
 
 export type LogbookEntryListRow = {
   id: string;
   trainee_profile_id: string;
   procedure_catalog_id: string;
   performed_on: string;
+  quantity: number;
+  participation_role: LogbookParticipationRole;
   supervision_level: SupervisionLevel;
   autonomy_level: AutonomyLevel;
   confidence_level: number;
   notes: string | null;
   created_at: string;
-  procedure_catalog: { name: string } | null;
+  procedure_catalog: {
+    name: string;
+    category: string;
+    procedure_name: string;
+    subtype: string | null;
+  } | null;
 };
 
 function firstOrNull<T>(value: T | T[] | null | undefined): T | null {
@@ -93,10 +118,11 @@ export async function listActiveProcedureCatalog(): Promise<ProcedureCatalogRow[
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from("procedure_catalog")
-    .select("id, name, category, description, active")
+    .select("id, name, category, procedure_name, subtype, description, active")
     .eq("active", true)
     .order("category", { ascending: true })
-    .order("name", { ascending: true });
+    .order("procedure_name", { ascending: true })
+    .order("subtype", { ascending: true });
 
   if (error) {
     throw new Error(`procedure_catalog list failed: ${error.message}`);
@@ -115,7 +141,7 @@ export async function listRecentLogbookEntries(profile: CurrentUserProfile, limi
     .select(
       `
       *,
-      procedure_catalog ( name )
+      procedure_catalog ( name, category, procedure_name, subtype )
     `,
     )
     .order("performed_on", { ascending: false })
@@ -134,7 +160,20 @@ export async function listRecentLogbookEntries(profile: CurrentUserProfile, limi
 
   return (data ?? []).map((raw) => {
     const row = raw as Record<string, unknown> & {
-      procedure_catalog: { name: string } | { name: string }[] | null;
+      procedure_catalog:
+        | {
+            name: string;
+            category: string;
+            procedure_name: string;
+            subtype: string | null;
+          }
+        | {
+            name: string;
+            category: string;
+            procedure_name: string;
+            subtype: string | null;
+          }[]
+        | null;
     };
     const procedure_catalog = firstOrNull(row.procedure_catalog);
 
@@ -143,6 +182,8 @@ export async function listRecentLogbookEntries(profile: CurrentUserProfile, limi
       trainee_profile_id: traineeIdFromLogbookRow(row),
       procedure_catalog_id: String(row.procedure_catalog_id ?? ""),
       performed_on: String(row.performed_on ?? "").trim(),
+      quantity: Math.max(1, Number(row.quantity ?? 1)),
+      participation_role: String(row.participation_role ?? "assistito") as LogbookParticipationRole,
       supervision_level: row.supervision_level as LogbookEntryListRow["supervision_level"],
       autonomy_level: row.autonomy_level as LogbookEntryListRow["autonomy_level"],
       confidence_level: Number(row.confidence_level ?? 0),
@@ -156,14 +197,39 @@ export async function listRecentLogbookEntries(profile: CurrentUserProfile, limi
 type ReportRow = { label: string; value: number };
 
 function aggregateTopProcedures(
-  rows: { procedure_catalog: { name: string } | { name: string }[] | null }[],
+  rows: {
+    quantity?: number;
+    procedure_catalog:
+      | {
+          name: string;
+          category: string;
+          procedure_name: string;
+          subtype: string | null;
+        }
+      | {
+          name: string;
+          category: string;
+          procedure_name: string;
+          subtype: string | null;
+        }[]
+      | null;
+  }[],
   take: number,
 ): ReportRow[] {
   const counts = new Map<string, number>();
   for (const row of rows) {
     const proc = firstOrNull(row.procedure_catalog);
-    const name = proc?.name?.trim() || "Procedura";
-    counts.set(name, (counts.get(name) ?? 0) + 1);
+    const qty = Math.max(1, Number(row.quantity ?? 1));
+    const label = proc
+      ? proc.procedure_name?.trim()
+        ? formatProcedureCatalogPath({
+            category: proc.category,
+            procedure: proc.procedure_name,
+            subtype: proc.subtype,
+          })
+        : proc.name?.trim() || "Procedura"
+      : "Procedura";
+    counts.set(label, (counts.get(label) ?? 0) + qty);
   }
 
   const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
@@ -189,7 +255,7 @@ async function fetchEntriesInRange(
     .select(
       `
       performed_on,
-      procedure_catalog ( name )
+      procedure_catalog ( name, category, procedure_name, subtype )
     `,
     )
     .gte("performed_on", from)
@@ -207,7 +273,11 @@ async function fetchEntriesInRange(
 
   return (data ?? []) as {
     performed_on: string;
-    procedure_catalog: { name: string } | { name: string }[] | null;
+    quantity: number;
+    procedure_catalog:
+      | { name: string; category: string; procedure_name: string; subtype: string | null }
+      | { name: string; category: string; procedure_name: string; subtype: string | null }[]
+      | null;
   }[];
 }
 

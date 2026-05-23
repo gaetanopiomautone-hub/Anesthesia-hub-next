@@ -8,14 +8,17 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth/get-current-user-profile";
 import { canAccess } from "@/lib/auth/permissions";
 import { probeLogbookTraineeFilterColumn } from "@/lib/data/logbook";
+import {
+  LOGBOOK_PARTICIPATION_ROLE_VALUES,
+  type LogbookParticipationRole,
+} from "@/lib/domain/logbook-participation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 const logbookCreateSchema = z.object({
   performedOn: z.string().min(1),
   procedureCatalogId: z.string().uuid(),
-  supervisionLevel: z.enum(["diretta", "indiretta", "assente"]),
-  autonomyLevel: z.enum(["assistito", "con_supervisione", "autonomo"]),
-  confidence: z.coerce.number().int().min(1).max(5),
+  participationRole: z.enum(LOGBOOK_PARTICIPATION_ROLE_VALUES),
+  quantity: z.coerce.number().int().min(1).max(999),
   notes: z.string().max(2000).optional(),
 });
 
@@ -46,6 +49,22 @@ function friendlyPostgresMessage(error: PostgrestError): string {
   }
 }
 
+function legacyLevelsFromParticipation(role: LogbookParticipationRole): {
+  supervision_level: "diretta" | "indiretta" | "assente";
+  autonomy_level: "assistito" | "con_supervisione" | "autonomo";
+} {
+  switch (role) {
+    case "osservato":
+      return { supervision_level: "indiretta", autonomy_level: "assistito" };
+    case "assistito":
+      return { supervision_level: "diretta", autonomy_level: "assistito" };
+    case "eseguito_supervisionato":
+      return { supervision_level: "diretta", autonomy_level: "con_supervisione" };
+    case "eseguito_autonomamente":
+      return { supervision_level: "assente", autonomy_level: "autonomo" };
+  }
+}
+
 async function requireLogbookTrainee() {
   const profile = await requireUser();
   if (!canAccess(profile.role, "logbook")) redirect("/forbidden");
@@ -57,9 +76,8 @@ function parseLogbookCreateForm(formData: FormData) {
   const result = logbookCreateSchema.safeParse({
     performedOn: formData.get("performedOn"),
     procedureCatalogId: formData.get("procedureCatalogId"),
-    supervisionLevel: formData.get("supervisionLevel"),
-    autonomyLevel: formData.get("autonomyLevel"),
-    confidence: formData.get("confidence"),
+    participationRole: formData.get("participationRole"),
+    quantity: formData.get("quantity"),
     notes: formData.get("notes"),
   });
   if (!result.success) {
@@ -73,9 +91,8 @@ function parseLogbookUpdateForm(formData: FormData) {
     id: formData.get("id"),
     performedOn: formData.get("performedOn"),
     procedureCatalogId: formData.get("procedureCatalogId"),
-    supervisionLevel: formData.get("supervisionLevel"),
-    autonomyLevel: formData.get("autonomyLevel"),
-    confidence: formData.get("confidence"),
+    participationRole: formData.get("participationRole"),
+    quantity: formData.get("quantity"),
     notes: formData.get("notes"),
   });
   if (!result.success) {
@@ -93,6 +110,7 @@ function revalidateLogbookRelated() {
 export async function createLogbookEntryAction(formData: FormData) {
   const profile = await requireLogbookTrainee();
   const parsed = parseLogbookCreateForm(formData);
+  const legacy = legacyLevelsFromParticipation(parsed.participationRole);
 
   const supabase = await createServerSupabaseClient();
   const traineeCol = await probeLogbookTraineeFilterColumn(supabase);
@@ -100,9 +118,11 @@ export async function createLogbookEntryAction(formData: FormData) {
     [traineeCol]: profile.id,
     procedure_catalog_id: parsed.procedureCatalogId,
     performed_on: parsed.performedOn,
-    supervision_level: parsed.supervisionLevel,
-    autonomy_level: parsed.autonomyLevel,
-    confidence_level: parsed.confidence,
+    participation_role: parsed.participationRole,
+    quantity: parsed.quantity,
+    supervision_level: legacy.supervision_level,
+    autonomy_level: legacy.autonomy_level,
+    confidence_level: 3,
     notes: parsed.notes?.trim() ? parsed.notes.trim() : null,
     patient_reference: null,
     clinical_location_id: null,
@@ -120,6 +140,7 @@ export async function createLogbookEntryAction(formData: FormData) {
 export async function updateLogbookEntryAction(formData: FormData) {
   const profile = await requireLogbookTrainee();
   const parsed = parseLogbookUpdateForm(formData);
+  const legacy = legacyLevelsFromParticipation(parsed.participationRole);
 
   const supabase = await createServerSupabaseClient();
   const traineeCol = await probeLogbookTraineeFilterColumn(supabase);
@@ -144,9 +165,10 @@ export async function updateLogbookEntryAction(formData: FormData) {
     .update({
       procedure_catalog_id: parsed.procedureCatalogId,
       performed_on: parsed.performedOn,
-      supervision_level: parsed.supervisionLevel,
-      autonomy_level: parsed.autonomyLevel,
-      confidence_level: parsed.confidence,
+      participation_role: parsed.participationRole,
+      quantity: parsed.quantity,
+      supervision_level: legacy.supervision_level,
+      autonomy_level: legacy.autonomy_level,
       notes: parsed.notes?.trim() ? parsed.notes.trim() : null,
       patient_reference: null,
     })

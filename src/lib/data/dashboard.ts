@@ -4,6 +4,7 @@ import { it } from "date-fns/locale";
 import type { CurrentUserProfile } from "@/lib/auth/get-current-user-profile";
 import type { AppRole } from "@/lib/auth/roles";
 import { probeLogbookTraineeFilterColumn } from "@/lib/data/logbook";
+import type { LogbookParticipationRole } from "@/lib/domain/logbook-participation";
 import {
   probeShiftsAssigneeFilterColumn,
   type ShiftsAssigneeFilterColumn,
@@ -23,10 +24,14 @@ type LeaveRequestRow = {
 type LogbookRow = {
   id: string;
   performed_on: string;
-  supervision_level: "diretta" | "indiretta" | "assente";
-  autonomy_level: "assistito" | "con_supervisione" | "autonomo";
-  confidence_level: number;
-  procedure_catalog: { name: string } | null;
+  quantity: number;
+  participation_role: LogbookParticipationRole;
+  procedure_catalog: {
+    name: string;
+    category: string;
+    procedure_name: string;
+    subtype: string | null;
+  } | null;
 };
 
 type ShiftRow = {
@@ -80,32 +85,6 @@ export function leaveStatusLabel(status: LeaveRequestRow["status"]) {
       return "Rifiutato";
     case "cancelled":
       return "Annullato";
-  }
-}
-
-export function supervisionLabel(level: LogbookRow["supervision_level"]) {
-  switch (level) {
-    case "diretta":
-      return "Diretta";
-    case "indiretta":
-      return "Indiretta";
-    case "assente":
-      return "Assente";
-    default:
-      return level;
-  }
-}
-
-export function autonomyLabel(level: LogbookRow["autonomy_level"]) {
-  switch (level) {
-    case "assistito":
-      return "Assistito";
-    case "con_supervisione":
-      return "Con supervisione";
-    case "autonomo":
-      return "Autonomo";
-    default:
-      return level;
   }
 }
 
@@ -319,10 +298,9 @@ export async function getDashboardData(profile: CurrentUserProfile) {
         `
         id,
         performed_on,
-        supervision_level,
-        autonomy_level,
-        confidence_level,
-        procedure_catalog ( name )
+        quantity,
+        participation_role,
+        procedure_catalog ( name, category, procedure_name, subtype )
       `,
       )
       .order("performed_on", { ascending: false })
@@ -342,18 +320,19 @@ export async function getDashboardData(profile: CurrentUserProfile) {
       const row = raw as {
         id: string;
         performed_on: string;
-        supervision_level: LogbookRow["supervision_level"];
-        autonomy_level: LogbookRow["autonomy_level"];
-        confidence_level: number;
-        procedure_catalog: { name: string } | { name: string }[] | null;
+        quantity: number;
+        participation_role: LogbookParticipationRole;
+        procedure_catalog:
+          | { name: string; category: string; procedure_name: string; subtype: string | null }
+          | { name: string; category: string; procedure_name: string; subtype: string | null }[]
+          | null;
       };
 
       return {
         id: row.id,
         performed_on: row.performed_on,
-        supervision_level: row.supervision_level,
-        autonomy_level: row.autonomy_level,
-        confidence_level: row.confidence_level,
+        quantity: Math.max(1, Number(row.quantity ?? 1)),
+        participation_role: row.participation_role ?? "assistito",
         procedure_catalog: firstOrNull(row.procedure_catalog),
       };
     });
