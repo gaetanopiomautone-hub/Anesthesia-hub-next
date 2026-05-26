@@ -12,7 +12,7 @@ type AppSection =
   | "admin";
 
 const permissionMatrix: Record<AppRole, AppSection[]> = {
-  specializzando: ["dashboard", "profilo", "turni", "ferie", "universita"],
+  specializzando: ["dashboard", "profilo", "turni", "ferie", "universita", "logbook", "report"],
   tutor: ["dashboard", "profilo", "turni", "ferie", "universita", "archivio", "logbook", "report"],
   admin: ["dashboard", "profilo", "turni", "ferie", "universita", "archivio", "logbook", "report", "admin"],
 };

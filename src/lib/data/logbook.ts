@@ -255,6 +255,7 @@ async function fetchEntriesInRange(
     .select(
       `
       performed_on,
+      quantity,
       procedure_catalog ( name, category, procedure_name, subtype )
     `,
     )
