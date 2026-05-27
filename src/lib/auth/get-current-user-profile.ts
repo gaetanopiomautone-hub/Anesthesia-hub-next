@@ -89,7 +89,8 @@ export const getCurrentUserProfile = cache(async (): Promise<CurrentUserProfile 
     .eq("id", user.id)
     .single();
 
-  if (profileError || !profile || !profile.is_active) {
+  // Allineato al gate login: `is_active` null (legacy) = account attivo.
+  if (profileError || !profile || profile.is_active === false) {
     return null;
   }
 
@@ -116,7 +117,7 @@ export const getCurrentUserProfile = cache(async (): Promise<CurrentUserProfile 
     role: profile.role as AppRole,
     anno_specialita: spez?.anno_specialita ?? null,
     assegnazione: spez?.assegnazione ?? null,
-    is_active: Boolean(profile.is_active),
+    is_active: profile.is_active !== false,
   };
 });
 
