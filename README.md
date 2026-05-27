@@ -58,6 +58,7 @@ types/
 
 ## Deploy (es. Vercel) e PDF turni
 
+- **Variabili server in produzione**: oltre a `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY`, impostare **`SUPABASE_SERVICE_ROLE_KEY`** (solo lato server, mai prefisso `NEXT_PUBLIC_`) nell’hosting (es. Vercel → Settings → Environment Variables). Serve alle **server actions** che usano `createServiceRoleSupabaseClient()` — incluso il **gate login** (`profiles` dopo `signInWithPassword`, bypass RLS). Se manca, il codice fa fallback al client con sessione (RLS) e il login può risultare intermittente. La stessa chiave è richiesta da import PDF turni, sedi cliniche, planning change log, ecc.
 - **PDF mensile** (`/turni/monthly-plan-pdf`): la route dichiara `runtime = "nodejs"` ed è compatibile con **Vercel** (funzione Node, non Edge). In `next.config.ts` è impostato `serverExternalPackages: ["pdfkit"]` così il bundler non incorpora binari/font opzionali di `pdfkit` in modo fragile.
 - **RLS `profiles`**: per leggere `telefono` (e nome) degli specializzandi **non** autenticati come admin, applicare la migrazione `20260511240000_profiles_select_turni_pdf_assignees.sql` (policy `profiles_select_turni_assignees_on_approved_plan`). Senza di essa, solo l’admin vede i numeri altrui; tutor/specializzando vedrebbero `n/d` per i colleghi.
 - **Intestazione PDF**: in produzione impostare `NEXT_PUBLIC_PLANNING_ORG_LABEL` (Vercel → Settings → Environment Variables) con nome scuola/reparto, es. `Scuola di specializzazione in Anestesia e Rianimazione — …`.

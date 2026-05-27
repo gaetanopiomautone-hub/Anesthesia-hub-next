@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createServiceRoleSupabaseClient } from "@/lib/supabase/service-role";
 
 function formatLoginError(message: string) {
   const normalized = message.toLowerCase();
@@ -50,11 +51,21 @@ export async function loginAction(formData: FormData) {
     redirect(`/login?error=${encodeURIComponent("Sessione non avviata. Riprova.")}`);
   }
 
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("id, is_active")
-    .eq("id", user.id)
-    .maybeSingle();
+  type ProfileGate = { id: string; is_active: boolean | null };
+
+  /** Lettura profilo bypass RLS: subito dopo sign-in il cookie di sessione può non propagarsi alla query PostgREST nella stessa server action. */
+  let profile: ProfileGate | null = null;
+  let profileError: { message: string } | null = null;
+  try {
+    const admin = createServiceRoleSupabaseClient();
+    const res = await admin.from("profiles").select("id, is_active").eq("id", user.id).maybeSingle();
+    profile = (res.data ?? null) as ProfileGate | null;
+    profileError = res.error;
+  } catch {
+    const res = await supabase.from("profiles").select("id, is_active").eq("id", user.id).maybeSingle();
+    profile = (res.data ?? null) as ProfileGate | null;
+    profileError = res.error;
+  }
 
   if (profileError || !profile || profile.is_active === false) {
     await supabase.auth.signOut();
