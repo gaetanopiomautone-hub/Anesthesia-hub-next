@@ -1,7 +1,7 @@
 -- Aree sala / tipo turno (distinct da clinical_locations fisiche).
 -- FK opzionale su shift_items per collegamento graduale; specialty/room_name restano per compatibilità.
 
-create table public.clinical_areas (
+create table if not exists public.clinical_areas (
   id uuid primary key default gen_random_uuid(),
   code text not null unique,
   name text not null,

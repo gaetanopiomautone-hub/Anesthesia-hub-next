@@ -56,7 +56,7 @@ export async function loginAction(formData: FormData) {
     .eq("id", user.id)
     .maybeSingle();
 
-  if (profileError || !profile || !profile.is_active) {
+  if (profileError || !profile || profile.is_active === false) {
     await supabase.auth.signOut();
     redirect(`/login?error=${encodeURIComponent("Account non abilitato o disattivato. Contatta l'amministrazione.")}`);
   }

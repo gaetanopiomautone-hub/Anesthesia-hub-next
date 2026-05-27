@@ -84,15 +84,65 @@ alter table public.logbook_entries
 
 update public.logbook_entries
 set participation_role = case
-  when autonomy_level = 'autonomo'::public.autonomy_level then 'eseguito_autonomamente'::public.logbook_participation_role
-  when autonomy_level = 'con_supervisione'::public.autonomy_level then 'eseguito_supervisionato'::public.logbook_participation_role
-  when autonomy_level = 'assistito'::public.autonomy_level then 'assistito'::public.logbook_participation_role
+  when autonomy_level::text = 'autonomo' then 'eseguito_autonomamente'::public.logbook_participation_role
+  when autonomy_level::text = 'con_supervisione' then 'eseguito_supervisionato'::public.logbook_participation_role
+  when autonomy_level::text = 'assistito' then 'assistito'::public.logbook_participation_role
   else 'osservato'::public.logbook_participation_role
 end
 where participation_role is null;
 
 alter table public.logbook_entries
   alter column participation_role set not null;
+
+-- ---------------------------------------------------------------------------
+-- logbook_entries: allinea trainee_profile_id (DB legacy: user_id / trainee_id / profile_id)
+-- ---------------------------------------------------------------------------
+
+alter table public.logbook_entries
+  add column if not exists trainee_profile_id uuid;
+
+do $$
+begin
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'logbook_entries'
+      and column_name = 'trainee_id'
+  ) then
+    update public.logbook_entries
+    set trainee_profile_id = trainee_id
+    where trainee_profile_id is null
+      and trainee_id is not null;
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'logbook_entries'
+      and column_name = 'profile_id'
+  ) then
+    update public.logbook_entries
+    set trainee_profile_id = profile_id
+    where trainee_profile_id is null
+      and profile_id is not null;
+  end if;
+
+  if exists (
+    select 1
+    from information_schema.columns
+    where table_schema = 'public'
+      and table_name = 'logbook_entries'
+      and column_name = 'user_id'
+  ) then
+    update public.logbook_entries
+    set trainee_profile_id = user_id
+    where trainee_profile_id is null
+      and user_id is not null;
+  end if;
+end
+$$;
 
 -- Tutor: lettura voci logbook (portfolio formativo)
 drop policy if exists "logbook_select_own_or_admin" on public.logbook_entries;
@@ -109,6 +159,12 @@ using (
 -- ---------------------------------------------------------------------------
 -- Catalogo procedure (seed idempotente)
 -- ---------------------------------------------------------------------------
+
+alter table public.procedure_catalog
+  add column if not exists active boolean not null default true;
+
+alter table public.procedure_catalog
+  add column if not exists description text;
 
 insert into public.procedure_catalog (category, procedure_name, subtype, description, active)
 values
