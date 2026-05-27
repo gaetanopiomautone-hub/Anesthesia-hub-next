@@ -10,6 +10,7 @@ import type { LogbookParticipationRole } from "@/lib/domain/logbook-participatio
 import { listActiveProcedureCatalog } from "@/lib/data/logbook";
 import { probeLogbookTraineeFilterColumn } from "@/lib/data/logbook";
 import { listAssignableUsers } from "@/lib/data/shifts";
+import { profileDisplayName } from "@/lib/utils/profile-display";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export type PortfolioTraineeOption = { id: string; label: string };
@@ -113,6 +114,18 @@ async function fetchPortfolioEntries(
   });
 }
 
+async function fetchAnnoSpecialita(traineeId: string | null): Promise<number | null> {
+  if (!traineeId) return null;
+  const supabase = await createServerSupabaseClient();
+  const { data } = await supabase
+    .from("specializzandi_profiles")
+    .select("anno_specialita")
+    .eq("user_id", traineeId)
+    .maybeSingle();
+  const n = data?.anno_specialita;
+  return typeof n === "number" && n >= 1 && n <= 5 ? n : null;
+}
+
 export async function getLogbookPortfolioReport(
   profile: CurrentUserProfile,
   query: LogbookPortfolioQuery,
@@ -122,6 +135,7 @@ export async function getLogbookPortfolioReport(
   traineeOptions: PortfolioTraineeOption[];
   resolvedQuery: LogbookPortfolioQuery;
   subjectLabel: string;
+  annoSpecialita: number | null;
 }> {
   const [entries, categories, traineeOptions] = await Promise.all([
     fetchPortfolioEntries(profile, query),
@@ -132,11 +146,20 @@ export async function getLogbookPortfolioReport(
   const report = buildLogbookPortfolioReport(entries, { categoryFilter: query.category });
 
   let subjectLabel = "Tutti gli specializzandi visibili";
+  let annoSpecialita: number | null = null;
+
   if (profile.role === "specializzando") {
-    subjectLabel = "Il tuo portfolio";
+    subjectLabel =
+      profileDisplayName({ nome: profile.nome, cognome: profile.cognome, email: profile.email }) ||
+      "Specializzando";
+    annoSpecialita =
+      profile.anno_specialita != null && profile.anno_specialita >= 1 && profile.anno_specialita <= 5
+        ? profile.anno_specialita
+        : null;
   } else if (query.traineeId) {
     const match = traineeOptions.find((t) => t.id === query.traineeId);
     subjectLabel = match?.label ?? "Specializzando selezionato";
+    annoSpecialita = await fetchAnnoSpecialita(query.traineeId);
   }
 
   return {
@@ -145,5 +168,15 @@ export async function getLogbookPortfolioReport(
     traineeOptions,
     resolvedQuery: query,
     subjectLabel,
+    annoSpecialita,
   };
+}
+
+export function buildPortfolioPdfSearchParams(query: LogbookPortfolioQuery): string {
+  const p = new URLSearchParams();
+  p.set("from", query.from);
+  p.set("to", query.to);
+  if (query.traineeId) p.set("trainee", query.traineeId);
+  if (query.category) p.set("category", query.category);
+  return p.toString();
 }

@@ -4,7 +4,11 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
 import { requireSection } from "@/lib/auth/get-current-user-profile";
 import { getLogbookProcedureReportSections } from "@/lib/data/logbook";
-import { getLogbookPortfolioReport, normalizePortfolioQuery } from "@/lib/data/logbook-portfolio";
+import {
+  buildPortfolioPdfSearchParams,
+  getLogbookPortfolioReport,
+  normalizePortfolioQuery,
+} from "@/lib/data/logbook-portfolio";
 
 import { PortfolioBreakdownTable } from "./portfolio-breakdown-table";
 
@@ -38,6 +42,7 @@ export default async function ReportPage({ searchParams }: PageProps) {
     ]);
 
   const canPickTrainee = profile.role === "tutor" || profile.role === "admin";
+  const pdfHref = `/report/portfolio-pdf?${buildPortfolioPdfSearchParams(resolvedQuery)}`;
 
   const quickSections = [
     { title: "Settimana", values: sectionsRaw.week },
@@ -52,12 +57,20 @@ export default async function ReportPage({ searchParams }: PageProps) {
         title="Report procedure"
         description="Totali pesati sulla quantità registrata in logbook. Gli specializzandi vedono solo il proprio portfolio; tutor e admin possono filtrare per persona."
         actions={
-          <Link
-            href="/logbook"
-            className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-card px-4 text-sm font-medium hover:bg-accent"
-          >
-            Vai al logbook
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <a
+              href={pdfHref}
+              className="inline-flex h-10 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Esporta PDF
+            </a>
+            <Link
+              href="/logbook"
+              className="inline-flex h-10 items-center justify-center rounded-lg border border-border bg-card px-4 text-sm font-medium hover:bg-accent"
+            >
+              Vai al logbook
+            </Link>
+          </div>
         }
       />
 
