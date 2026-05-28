@@ -6,6 +6,7 @@ import { canAccess } from "@/lib/auth/permissions";
 import { appRoles } from "@/lib/auth/roles";
 import type { AppRole } from "@/lib/auth/roles";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { createServiceRoleSupabaseClient } from "@/lib/supabase/service-role";
 import { parseProfileGender, type ProfileGender } from "@/lib/domain/profile-greeting";
 import { profileDisplayName } from "@/lib/utils/profile-display";
 
@@ -70,20 +71,37 @@ export const getCurrentUserProfile = cache(async (): Promise<CurrentUserProfile 
   }
 
   const supabase = await createServerSupabaseClient();
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select(`
-      id,
-      email,
-      nome,
-      cognome,
-      telefono,
-      gender,
-      role,
-      is_active
-    `)
-    .eq("id", user.id)
-    .single();
+  type ProfileGate = {
+    id: string;
+    email: string;
+    nome: string;
+    cognome: string;
+    telefono: string | null;
+    gender: unknown;
+    role: unknown;
+    is_active: boolean | null;
+  };
+
+  let profile: ProfileGate | null = null;
+  let profileError: { message: string } | null = null;
+  try {
+    const admin = createServiceRoleSupabaseClient();
+    const res = await admin
+      .from("profiles")
+      .select("id, email, nome, cognome, telefono, gender, role, is_active")
+      .eq("id", user.id)
+      .maybeSingle();
+    profile = (res.data ?? null) as ProfileGate | null;
+    profileError = res.error;
+  } catch {
+    const res = await supabase
+      .from("profiles")
+      .select("id, email, nome, cognome, telefono, gender, role, is_active")
+      .eq("id", user.id)
+      .maybeSingle();
+    profile = (res.data ?? null) as ProfileGate | null;
+    profileError = res.error;
+  }
 
   // Allineato al gate login: `is_active` null (legacy) = account attivo.
   if (profileError || !profile || profile.is_active === false) {
@@ -94,9 +112,19 @@ export const getCurrentUserProfile = cache(async (): Promise<CurrentUserProfile 
     return null;
   }
 
-  const spez = pickSpecializzandiRow(
-    (profile as { specializzandi_profiles?: unknown }).specializzandi_profiles,
-  );
+  let spez: { anno_specialita: number | null; assegnazione: string | null } | null = null;
+  if ((profile.role as AppRole) === "specializzando") {
+    type SpecializzandoRow = { anno_specialita: number | null; assegnazione: string | null };
+    const { data: specializzandoData, error: specializzandoError } = await supabase
+      .from("specializzandi_profiles")
+      .select("anno_specialita, assegnazione")
+      .eq("id", user.id)
+      .maybeSingle();
+    if (specializzandoError) {
+      return null;
+    }
+    spez = pickSpecializzandiRow(specializzandoData as SpecializzandoRow | null);
+  }
 
   const nome = String((profile as { nome?: string }).nome ?? "");
   const cognome = String((profile as { cognome?: string }).cognome ?? "");
@@ -113,7 +141,7 @@ export const getCurrentUserProfile = cache(async (): Promise<CurrentUserProfile 
     role: profile.role as AppRole,
     anno_specialita: spez?.anno_specialita ?? null,
     assegnazione: spez?.assegnazione ?? null,
-    is_active: profile.is_active !== false,
+    is_active: true,
   };
 });
 
