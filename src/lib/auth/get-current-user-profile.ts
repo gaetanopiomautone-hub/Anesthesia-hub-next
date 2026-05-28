@@ -80,11 +80,7 @@ export const getCurrentUserProfile = cache(async (): Promise<CurrentUserProfile 
       telefono,
       gender,
       role,
-      is_active,
-      specializzandi_profiles (
-        anno_specialita,
-        assegnazione
-      )
+      is_active
     `)
     .eq("id", user.id)
     .single();
