@@ -118,7 +118,7 @@ export const getCurrentUserProfile = cache(async (): Promise<CurrentUserProfile 
     const { data: specializzandoData, error: specializzandoError } = await supabase
       .from("specializzandi_profiles")
       .select("anno_specialita, assegnazione")
-      .eq("id", user.id)
+      .eq("user_id", user.id)
       .maybeSingle();
     if (specializzandoError) {
       return null;
