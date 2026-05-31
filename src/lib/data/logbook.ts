@@ -9,8 +9,8 @@ import { createServerSupabaseClient } from "@/lib/supabase/server";
 
 export { participationRoleLabel };
 
-/** Ordine come su DB legacy → schema corrente. */
-export const LOGBOOK_TRAINEE_COLUMNS = ["user_id", "trainee_profile_id", "trainee_id"] as const;
+/** Ordine: schema corrente, poi legacy (user_id / trainee_id). */
+export const LOGBOOK_TRAINEE_COLUMNS = ["trainee_profile_id", "user_id", "trainee_id"] as const;
 
 export type LogbookTraineeFilterColumn = (typeof LOGBOOK_TRAINEE_COLUMNS)[number];
 

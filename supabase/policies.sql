@@ -374,6 +374,13 @@ to authenticated
 using (trainee_profile_id = auth.uid())
 with check (trainee_profile_id = auth.uid());
 
+drop policy if exists "logbook_delete_own" on public.logbook_entries;
+create policy "logbook_delete_own"
+on public.logbook_entries
+for delete
+to authenticated
+using (trainee_profile_id = auth.uid());
+
 -- ---------------------------------------------------------------------------
 -- shifts
 -- Rules:
