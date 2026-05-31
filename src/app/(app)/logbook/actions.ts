@@ -35,6 +35,20 @@ function redirectToLogbookWithError(message: string): never {
   redirect(`${LOGBOOK_PATH}?error=${encodeURIComponent(message)}`);
 }
 
+function logLogbookPostgrestError(
+  action: string,
+  error: PostgrestError,
+  context?: Record<string, unknown>,
+) {
+  console.error(`[logbook] ${action} PostgREST error`, {
+    code: error.code,
+    message: error.message,
+    details: error.details,
+    hint: error.hint,
+    ...context,
+  });
+}
+
 function friendlyPostgresMessage(error: PostgrestError): string {
   switch (error.code) {
     case "23514":
@@ -136,6 +150,11 @@ export async function createLogbookEntryAction(formData: FormData) {
   } as Record<string, unknown>);
 
   if (error) {
+    logLogbookPostgrestError("createLogbookEntryAction insert failed", error, {
+      traineeCol,
+      procedureCol,
+      traineeId: profile.id,
+    });
     redirectToLogbookWithError(friendlyPostgresMessage(error));
   }
 
@@ -186,6 +205,12 @@ export async function updateLogbookEntryAction(formData: FormData) {
     .select("id");
 
   if (error) {
+    logLogbookPostgrestError("updateLogbookEntryAction update failed", error, {
+      entryId: parsed.id,
+      traineeCol,
+      procedureCol,
+      traineeId: profile.id,
+    });
     redirectToLogbookWithError(friendlyPostgresMessage(error));
   }
 
