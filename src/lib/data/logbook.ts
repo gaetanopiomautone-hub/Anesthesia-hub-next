@@ -19,6 +19,51 @@ export const LOGBOOK_PROCEDURE_COLUMNS = ["procedure_catalog_id", "procedure_id"
 
 export type LogbookProcedureColumn = (typeof LOGBOOK_PROCEDURE_COLUMNS)[number];
 
+/** Data procedura: schema repo vs remoto. */
+export const LOGBOOK_DATE_COLUMNS = ["performed_on", "procedure_date"] as const;
+
+export type LogbookDateColumn = (typeof LOGBOOK_DATE_COLUMNS)[number];
+
+export type SupervisionLevel = "diretta" | "indiretta" | "assente";
+export type AutonomyLevel = "assistito" | "con_supervisione" | "autonomo";
+
+const LOGBOOK_OPTIONAL_WRITE_COLUMNS = [
+  "participation_role",
+  "quantity",
+  "supervision_level",
+  "autonomy_level",
+  "confidence_level",
+  "notes",
+  "procedure_name",
+  "clinical_location_id",
+  "supervisor_profile_id",
+] as const;
+
+export type LogbookWriteShape = {
+  traineeCol: LogbookTraineeFilterColumn;
+  procedureCol: LogbookProcedureColumn;
+  dateCol: LogbookDateColumn;
+  present: ReadonlySet<string>;
+};
+
+async function logbookColumnExists(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  column: string,
+): Promise<boolean> {
+  const { error } = await supabase.from("logbook_entries").select(column as "id").limit(1);
+  return !error;
+}
+
+async function probeLogbookPresentColumns(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  columns: readonly string[],
+): Promise<Set<string>> {
+  const checks = await Promise.all(
+    columns.map(async (column) => ((await logbookColumnExists(supabase, column)) ? column : null)),
+  );
+  return new Set(checks.filter((column): column is string => column !== null));
+}
+
 export async function probeLogbookTraineeFilterColumn(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
 ): Promise<LogbookTraineeFilterColumn> {
@@ -35,12 +80,138 @@ export async function probeLogbookProcedureColumn(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
 ): Promise<LogbookProcedureColumn> {
   for (const column of LOGBOOK_PROCEDURE_COLUMNS) {
-    const { error } = await supabase.from("logbook_entries").select(column as "id").limit(1);
-    if (!error) return column;
+    if (await logbookColumnExists(supabase, column)) return column;
   }
   throw new Error(
     `logbook_entries: nessuna colonna procedura tra ${LOGBOOK_PROCEDURE_COLUMNS.join(", ")}. Allinea il database.`,
   );
+}
+
+export async function probeLogbookDateColumn(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+): Promise<LogbookDateColumn> {
+  for (const column of LOGBOOK_DATE_COLUMNS) {
+    if (await logbookColumnExists(supabase, column)) return column;
+  }
+  throw new Error(
+    `logbook_entries: nessuna colonna data tra ${LOGBOOK_DATE_COLUMNS.join(", ")}. Allinea il database.`,
+  );
+}
+
+export async function probeLogbookWriteShape(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+): Promise<LogbookWriteShape> {
+  const [traineeCol, procedureCol, dateCol, optional] = await Promise.all([
+    probeLogbookTraineeFilterColumn(supabase),
+    probeLogbookProcedureColumn(supabase),
+    probeLogbookDateColumn(supabase),
+    probeLogbookPresentColumns(supabase, LOGBOOK_OPTIONAL_WRITE_COLUMNS),
+  ]);
+  const present = new Set<string>([traineeCol, procedureCol, dateCol, ...optional]);
+  return { traineeCol, procedureCol, dateCol, present };
+}
+
+/** Data procedura indipendentemente dal nome colonna nel DB. */
+export function performedOnFromLogbookRow(row: Record<string, unknown>): string {
+  for (const column of LOGBOOK_DATE_COLUMNS) {
+    const v = row[column];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
+}
+
+export type LogbookWriteInput = {
+  traineeId: string;
+  procedureCatalogId: string;
+  performedOn: string;
+  participationRole: LogbookParticipationRole;
+  quantity: number;
+  notes?: string;
+  supervisionLevel: SupervisionLevel;
+  autonomyLevel: AutonomyLevel;
+};
+
+async function resolveProcedureNameForLegacyColumn(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  procedureCatalogId: string,
+): Promise<string> {
+  const { data } = await supabase
+    .from("procedure_catalog")
+    .select("name, category, procedure_name, subtype")
+    .eq("id", procedureCatalogId)
+    .maybeSingle();
+
+  if (!data) return "Procedura";
+  const row = data as {
+    name?: string | null;
+    category?: string;
+    procedure_name?: string | null;
+    subtype?: string | null;
+  };
+  if (row.procedure_name?.trim()) {
+    return formatProcedureCatalogPath({
+      category: row.category ?? "",
+      procedure: row.procedure_name,
+      subtype: row.subtype,
+    });
+  }
+  return row.name?.trim() || "Procedura";
+}
+
+export async function buildLogbookInsertPayload(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  shape: LogbookWriteShape,
+  input: LogbookWriteInput,
+): Promise<Record<string, unknown>> {
+  const payload: Record<string, unknown> = {
+    [shape.traineeCol]: input.traineeId,
+    [shape.procedureCol]: input.procedureCatalogId,
+    [shape.dateCol]: input.performedOn,
+  };
+
+  if (shape.present.has("participation_role")) {
+    payload.participation_role = input.participationRole;
+  }
+  if (shape.present.has("quantity")) payload.quantity = input.quantity;
+  if (shape.present.has("supervision_level")) payload.supervision_level = input.supervisionLevel;
+  if (shape.present.has("autonomy_level")) payload.autonomy_level = input.autonomyLevel;
+  if (shape.present.has("confidence_level")) payload.confidence_level = 3;
+  if (shape.present.has("notes")) {
+    payload.notes = input.notes?.trim() ? input.notes.trim() : null;
+  }
+  if (shape.present.has("procedure_name")) {
+    payload.procedure_name = await resolveProcedureNameForLegacyColumn(supabase, input.procedureCatalogId);
+  }
+  if (shape.present.has("clinical_location_id")) payload.clinical_location_id = null;
+  if (shape.present.has("supervisor_profile_id")) payload.supervisor_profile_id = null;
+
+  return payload;
+}
+
+export async function buildLogbookUpdatePayload(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+  shape: LogbookWriteShape,
+  input: LogbookWriteInput,
+): Promise<Record<string, unknown>> {
+  const payload: Record<string, unknown> = {
+    [shape.procedureCol]: input.procedureCatalogId,
+    [shape.dateCol]: input.performedOn,
+  };
+
+  if (shape.present.has("participation_role")) {
+    payload.participation_role = input.participationRole;
+  }
+  if (shape.present.has("quantity")) payload.quantity = input.quantity;
+  if (shape.present.has("supervision_level")) payload.supervision_level = input.supervisionLevel;
+  if (shape.present.has("autonomy_level")) payload.autonomy_level = input.autonomyLevel;
+  if (shape.present.has("notes")) {
+    payload.notes = input.notes?.trim() ? input.notes.trim() : null;
+  }
+  if (shape.present.has("procedure_name")) {
+    payload.procedure_name = await resolveProcedureNameForLegacyColumn(supabase, input.procedureCatalogId);
+  }
+
+  return payload;
 }
 
 /** UUID tirocinante indipendentemente dal nome colonna nel DB. */
@@ -60,9 +231,6 @@ export function procedureIdFromLogbookRow(row: Record<string, unknown>): string 
   }
   return "";
 }
-
-export type SupervisionLevel = "diretta" | "indiretta" | "assente";
-export type AutonomyLevel = "assistito" | "con_supervisione" | "autonomo";
 
 export type ProcedureCatalogRow = {
   id: string;
@@ -207,7 +375,7 @@ export async function listRecentLogbookEntries(profile: CurrentUserProfile, limi
       id: String(row.id ?? ""),
       trainee_profile_id: traineeIdFromLogbookRow(row),
       procedure_catalog_id: procedureIdFromLogbookRow(row),
-      performed_on: String(row.performed_on ?? "").trim(),
+      performed_on: performedOnFromLogbookRow(row),
       quantity: Math.max(1, Number(row.quantity ?? 1)),
       participation_role: String(row.participation_role ?? "assistito") as LogbookParticipationRole,
       supervision_level: row.supervision_level as LogbookEntryListRow["supervision_level"],

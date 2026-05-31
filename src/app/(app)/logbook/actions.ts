@@ -8,8 +8,9 @@ import { z } from "zod";
 import { requireUser } from "@/lib/auth/get-current-user-profile";
 import { canAccess } from "@/lib/auth/permissions";
 import {
-  probeLogbookProcedureColumn,
-  probeLogbookTraineeFilterColumn,
+  buildLogbookInsertPayload,
+  buildLogbookUpdatePayload,
+  probeLogbookWriteShape,
 } from "@/lib/data/logbook";
 import {
   LOGBOOK_PARTICIPATION_ROLE_VALUES,
@@ -40,13 +41,15 @@ function logLogbookPostgrestError(
   error: PostgrestError,
   context?: Record<string, unknown>,
 ) {
-  console.error(`[logbook] ${action} PostgREST error`, {
-    code: error.code,
-    message: error.message,
-    details: error.details,
-    hint: error.hint,
-    ...context,
-  });
+  console.error(
+    `[logbook] ${action} PostgREST error ${JSON.stringify({
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      ...context,
+    })}`,
+  );
 }
 
 function friendlyPostgresMessage(error: PostgrestError): string {
@@ -124,35 +127,43 @@ function revalidateLogbookRelated() {
   revalidatePath("/report");
 }
 
+function logbookWriteInput(
+  profileId: string,
+  parsed: z.infer<typeof logbookCreateSchema>,
+  legacy: ReturnType<typeof legacyLevelsFromParticipation>,
+) {
+  return {
+    traineeId: profileId,
+    procedureCatalogId: parsed.procedureCatalogId,
+    performedOn: parsed.performedOn,
+    participationRole: parsed.participationRole,
+    quantity: parsed.quantity,
+    notes: parsed.notes,
+    supervisionLevel: legacy.supervision_level,
+    autonomyLevel: legacy.autonomy_level,
+  };
+}
+
 export async function createLogbookEntryAction(formData: FormData) {
   const profile = await requireLogbookTrainee();
   const parsed = parseLogbookCreateForm(formData);
   const legacy = legacyLevelsFromParticipation(parsed.participationRole);
 
   const supabase = await createServerSupabaseClient();
-  const [traineeCol, procedureCol] = await Promise.all([
-    probeLogbookTraineeFilterColumn(supabase),
-    probeLogbookProcedureColumn(supabase),
-  ]);
-  const { error } = await supabase.from("logbook_entries").insert({
-    [traineeCol]: profile.id,
-    [procedureCol]: parsed.procedureCatalogId,
-    performed_on: parsed.performedOn,
-    participation_role: parsed.participationRole,
-    quantity: parsed.quantity,
-    supervision_level: legacy.supervision_level,
-    autonomy_level: legacy.autonomy_level,
-    confidence_level: 3,
-    notes: parsed.notes?.trim() ? parsed.notes.trim() : null,
-    patient_reference: null,
-    clinical_location_id: null,
-    supervisor_profile_id: null,
-  } as Record<string, unknown>);
+  const shape = await probeLogbookWriteShape(supabase);
+  const payload = await buildLogbookInsertPayload(
+    supabase,
+    shape,
+    logbookWriteInput(profile.id, parsed, legacy),
+  );
+  const { error } = await supabase.from("logbook_entries").insert(payload);
 
   if (error) {
     logLogbookPostgrestError("createLogbookEntryAction insert failed", error, {
-      traineeCol,
-      procedureCol,
+      traineeCol: shape.traineeCol,
+      procedureCol: shape.procedureCol,
+      dateCol: shape.dateCol,
+      payloadKeys: Object.keys(payload),
       traineeId: profile.id,
     });
     redirectToLogbookWithError(friendlyPostgresMessage(error));
@@ -168,14 +179,11 @@ export async function updateLogbookEntryAction(formData: FormData) {
   const legacy = legacyLevelsFromParticipation(parsed.participationRole);
 
   const supabase = await createServerSupabaseClient();
-  const [traineeCol, procedureCol] = await Promise.all([
-    probeLogbookTraineeFilterColumn(supabase),
-    probeLogbookProcedureColumn(supabase),
-  ]);
+  const shape = await probeLogbookWriteShape(supabase);
 
   const { data: existing, error: existingError } = await supabase
     .from("logbook_entries")
-    .select(`id, ${traineeCol}`)
+    .select(`id, ${shape.traineeCol}`)
     .eq("id", parsed.id)
     .single();
 
@@ -183,32 +191,30 @@ export async function updateLogbookEntryAction(formData: FormData) {
     redirectToLogbookWithError("Voce non trovata o non accessibile.");
   }
 
-  const ownerId = String((existing as Record<string, unknown>)[traineeCol] ?? "").trim();
+  const ownerId = String((existing as Record<string, unknown>)[shape.traineeCol] ?? "").trim();
   if (ownerId !== profile.id) {
     redirectToLogbookWithError("Non puoi modificare voci di altri utenti.");
   }
 
+  const updatePayload = await buildLogbookUpdatePayload(
+    supabase,
+    shape,
+    logbookWriteInput(profile.id, parsed, legacy),
+  );
   const { data: updated, error } = await supabase
     .from("logbook_entries")
-    .update({
-      [procedureCol]: parsed.procedureCatalogId,
-      performed_on: parsed.performedOn,
-      participation_role: parsed.participationRole,
-      quantity: parsed.quantity,
-      supervision_level: legacy.supervision_level,
-      autonomy_level: legacy.autonomy_level,
-      notes: parsed.notes?.trim() ? parsed.notes.trim() : null,
-      patient_reference: null,
-    })
+    .update(updatePayload)
     .eq("id", parsed.id)
-    .eq(traineeCol, profile.id)
+    .eq(shape.traineeCol, profile.id)
     .select("id");
 
   if (error) {
     logLogbookPostgrestError("updateLogbookEntryAction update failed", error, {
       entryId: parsed.id,
-      traineeCol,
-      procedureCol,
+      traineeCol: shape.traineeCol,
+      procedureCol: shape.procedureCol,
+      dateCol: shape.dateCol,
+      payloadKeys: Object.keys(updatePayload),
       traineeId: profile.id,
     });
     redirectToLogbookWithError(friendlyPostgresMessage(error));
