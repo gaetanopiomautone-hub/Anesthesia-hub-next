@@ -7,7 +7,10 @@ import { z } from "zod";
 
 import { requireUser } from "@/lib/auth/get-current-user-profile";
 import { canAccess } from "@/lib/auth/permissions";
-import { probeLogbookTraineeFilterColumn } from "@/lib/data/logbook";
+import {
+  probeLogbookProcedureColumn,
+  probeLogbookTraineeFilterColumn,
+} from "@/lib/data/logbook";
 import {
   LOGBOOK_PARTICIPATION_ROLE_VALUES,
   type LogbookParticipationRole,
@@ -113,10 +116,13 @@ export async function createLogbookEntryAction(formData: FormData) {
   const legacy = legacyLevelsFromParticipation(parsed.participationRole);
 
   const supabase = await createServerSupabaseClient();
-  const traineeCol = await probeLogbookTraineeFilterColumn(supabase);
+  const [traineeCol, procedureCol] = await Promise.all([
+    probeLogbookTraineeFilterColumn(supabase),
+    probeLogbookProcedureColumn(supabase),
+  ]);
   const { error } = await supabase.from("logbook_entries").insert({
     [traineeCol]: profile.id,
-    procedure_catalog_id: parsed.procedureCatalogId,
+    [procedureCol]: parsed.procedureCatalogId,
     performed_on: parsed.performedOn,
     participation_role: parsed.participationRole,
     quantity: parsed.quantity,
@@ -143,7 +149,10 @@ export async function updateLogbookEntryAction(formData: FormData) {
   const legacy = legacyLevelsFromParticipation(parsed.participationRole);
 
   const supabase = await createServerSupabaseClient();
-  const traineeCol = await probeLogbookTraineeFilterColumn(supabase);
+  const [traineeCol, procedureCol] = await Promise.all([
+    probeLogbookTraineeFilterColumn(supabase),
+    probeLogbookProcedureColumn(supabase),
+  ]);
 
   const { data: existing, error: existingError } = await supabase
     .from("logbook_entries")
@@ -163,7 +172,7 @@ export async function updateLogbookEntryAction(formData: FormData) {
   const { data: updated, error } = await supabase
     .from("logbook_entries")
     .update({
-      procedure_catalog_id: parsed.procedureCatalogId,
+      [procedureCol]: parsed.procedureCatalogId,
       performed_on: parsed.performedOn,
       participation_role: parsed.participationRole,
       quantity: parsed.quantity,

@@ -14,6 +14,11 @@ export const LOGBOOK_TRAINEE_COLUMNS = ["user_id", "trainee_profile_id", "traine
 
 export type LogbookTraineeFilterColumn = (typeof LOGBOOK_TRAINEE_COLUMNS)[number];
 
+/** Nome colonna FK verso procedure_catalog (schema repo vs remoto). */
+export const LOGBOOK_PROCEDURE_COLUMNS = ["procedure_catalog_id", "procedure_id"] as const;
+
+export type LogbookProcedureColumn = (typeof LOGBOOK_PROCEDURE_COLUMNS)[number];
+
 export async function probeLogbookTraineeFilterColumn(
   supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
 ): Promise<LogbookTraineeFilterColumn> {
@@ -26,9 +31,30 @@ export async function probeLogbookTraineeFilterColumn(
   );
 }
 
+export async function probeLogbookProcedureColumn(
+  supabase: Awaited<ReturnType<typeof createServerSupabaseClient>>,
+): Promise<LogbookProcedureColumn> {
+  for (const column of LOGBOOK_PROCEDURE_COLUMNS) {
+    const { error } = await supabase.from("logbook_entries").select(column as "id").limit(1);
+    if (!error) return column;
+  }
+  throw new Error(
+    `logbook_entries: nessuna colonna procedura tra ${LOGBOOK_PROCEDURE_COLUMNS.join(", ")}. Allinea il database.`,
+  );
+}
+
 /** UUID tirocinante indipendentemente dal nome colonna nel DB. */
 export function traineeIdFromLogbookRow(row: Record<string, unknown>): string {
   for (const column of LOGBOOK_TRAINEE_COLUMNS) {
+    const v = row[column];
+    if (typeof v === "string" && v.trim()) return v.trim();
+  }
+  return "";
+}
+
+/** UUID catalogo procedura indipendentemente dal nome colonna nel DB. */
+export function procedureIdFromLogbookRow(row: Record<string, unknown>): string {
+  for (const column of LOGBOOK_PROCEDURE_COLUMNS) {
     const v = row[column];
     if (typeof v === "string" && v.trim()) return v.trim();
   }
@@ -180,7 +206,7 @@ export async function listRecentLogbookEntries(profile: CurrentUserProfile, limi
     return {
       id: String(row.id ?? ""),
       trainee_profile_id: traineeIdFromLogbookRow(row),
-      procedure_catalog_id: String(row.procedure_catalog_id ?? ""),
+      procedure_catalog_id: procedureIdFromLogbookRow(row),
       performed_on: String(row.performed_on ?? "").trim(),
       quantity: Math.max(1, Number(row.quantity ?? 1)),
       participation_role: String(row.participation_role ?? "assistito") as LogbookParticipationRole,
