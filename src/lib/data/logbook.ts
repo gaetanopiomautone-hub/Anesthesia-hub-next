@@ -3,6 +3,11 @@ import { it } from "date-fns/locale";
 
 import type { CurrentUserProfile } from "@/lib/auth/get-current-user-profile";
 import { formatProcedureCatalogPath } from "@/lib/domain/logbook-procedure-catalog";
+import {
+  buildLogbookPersonalStats,
+  logbookProcedureDisplayLabel,
+  type LogbookPersonalStats,
+} from "@/lib/domain/logbook-personal-stats";
 import type { LogbookParticipationRole } from "@/lib/domain/logbook-participation";
 import { participationRoleLabel } from "@/lib/domain/logbook-participation";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -325,6 +330,33 @@ export async function listActiveProcedureCatalog(): Promise<ProcedureCatalogRow[
   return (data ?? []) as ProcedureCatalogRow[];
 }
 
+export type { LogbookPersonalStats } from "@/lib/domain/logbook-personal-stats";
+
+export async function getLogbookPersonalStats(profile: CurrentUserProfile): Promise<LogbookPersonalStats> {
+  const supabase = await createServerSupabaseClient();
+  const traineeCol =
+    profile.role === "specializzando" ? await probeLogbookTraineeFilterColumn(supabase) : null;
+
+  let query = supabase.from("logbook_entries").select(
+    `
+      *,
+      procedure_catalog ( name, category, procedure_name, subtype )
+    `,
+  );
+
+  if (profile.role === "specializzando" && traineeCol) {
+    query = query.eq(traineeCol, profile.id);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw new Error(`logbook_entries stats failed: ${error.message}`);
+  }
+
+  return buildLogbookPersonalStats((data ?? []) as Parameters<typeof buildLogbookPersonalStats>[0]);
+}
+
 export async function listRecentLogbookEntries(profile: CurrentUserProfile, limit = 30): Promise<LogbookEntryListRow[]> {
   const supabase = await createServerSupabaseClient();
   const traineeCol =
@@ -414,15 +446,7 @@ function aggregateTopProcedures(
   for (const row of rows) {
     const proc = firstOrNull(row.procedure_catalog);
     const qty = Math.max(1, Number(row.quantity ?? 1));
-    const label = proc
-      ? proc.procedure_name?.trim()
-        ? formatProcedureCatalogPath({
-            category: proc.category,
-            procedure: proc.procedure_name,
-            subtype: proc.subtype,
-          })
-        : proc.name?.trim() || "Procedura"
-      : "Procedura";
+    const label = logbookProcedureDisplayLabel(proc);
     counts.set(label, (counts.get(label) ?? 0) + qty);
   }
 

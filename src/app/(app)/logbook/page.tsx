@@ -1,10 +1,12 @@
 import { PageHeader } from "@/components/layout/page-header";
+import StatCard from "@/components/StatCard";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { DataTable } from "@/components/ui/table";
 import { requireSection } from "@/lib/auth/get-current-user-profile";
 import {
   formatLogbookDate,
+  getLogbookPersonalStats,
   listActiveProcedureCatalog,
   listRecentLogbookEntries,
   participationRoleLabel,
@@ -47,7 +49,11 @@ export default async function LogbookPage({ searchParams }: LogbookPageProps) {
   const profile = await requireSection("logbook");
   const params = await searchParams;
   const actionError = params?.error?.trim() ? params.error.trim() : null;
-  const [procedures, entries] = await Promise.all([listActiveProcedureCatalog(), listRecentLogbookEntries(profile, 40)]);
+  const [procedures, entries, stats] = await Promise.all([
+    listActiveProcedureCatalog(),
+    listRecentLogbookEntries(profile, 40),
+    getLogbookPersonalStats(profile),
+  ]);
 
   const canRecord = profile.role === "specializzando";
 
@@ -122,7 +128,17 @@ export default async function LogbookPage({ searchParams }: LogbookPageProps) {
           )}
         </Card>
 
-        <Card title="Voci recenti">
+        <div className="space-y-6">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <StatCard label="Totale procedure" value={stats.totalProcedures} />
+            <StatCard label="Categorie usate" value={stats.categoriesUsed} />
+            <StatCard
+              label="Ultimo inserimento"
+              value={stats.lastRegistration ? formatLogbookDate(stats.lastRegistration) : "—"}
+            />
+          </div>
+
+          <Card title="Voci recenti">
           <DataTable
             rows={entries}
             columns={[
@@ -206,8 +222,27 @@ export default async function LogbookPage({ searchParams }: LogbookPageProps) {
               },
             ]}
           />
-        </Card>
+          </Card>
+        </div>
       </section>
+
+      <Card
+        title="Statistiche procedure"
+        description="Totali cumulativi per tipo di procedura (somma delle quantità registrate)."
+      >
+        {stats.procedureTotals.length === 0 ? (
+          <p className="text-sm text-muted-foreground">Nessuna procedura registrata.</p>
+        ) : (
+          <ul className="divide-y divide-border">
+            {stats.procedureTotals.map((row) => (
+              <li key={row.label} className="flex items-center justify-between gap-4 py-3 first:pt-0 last:pb-0">
+                <span className="text-sm font-medium text-foreground">{row.label}</span>
+                <span className="font-mono text-sm tabular-nums text-muted-foreground">{row.total}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Card>
     </div>
   );
 }
