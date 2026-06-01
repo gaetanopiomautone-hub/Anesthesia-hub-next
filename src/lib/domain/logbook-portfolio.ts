@@ -3,6 +3,7 @@ import type { LogbookParticipationRole } from "@/lib/domain/logbook-participatio
 import { participationRoleLabel } from "@/lib/domain/logbook-participation";
 
 export type LogbookPortfolioEntry = {
+  performed_on: string;
   quantity: number;
   participation_role: LogbookParticipationRole;
   procedure_catalog: {
@@ -15,12 +16,21 @@ export type LogbookPortfolioEntry = {
 
 export type PortfolioBreakdownRow = { label: string; value: number };
 
+export type LogbookPortfolioActivityRow = {
+  /** Data procedura (ISO yyyy-MM-dd). */
+  performedOn: string;
+  procedureLabel: string;
+  quantity: number;
+  roleLabel: string;
+};
+
 export type LogbookPortfolioReport = {
   totalQuantity: number;
   entryCount: number;
   byCategory: PortfolioBreakdownRow[];
   byProcedure: PortfolioBreakdownRow[];
   byParticipationRole: PortfolioBreakdownRow[];
+  activities: LogbookPortfolioActivityRow[];
 };
 
 function procedureLabel(entry: LogbookPortfolioEntry): string {
@@ -71,11 +81,21 @@ export function buildLogbookPortfolioReport(
     addToMap(byRole, participationRoleLabel(entry.participation_role), qty);
   }
 
+  const activities: LogbookPortfolioActivityRow[] = filtered
+    .map((entry) => ({
+      performedOn: entry.performed_on.trim(),
+      procedureLabel: procedureLabel(entry),
+      quantity: Math.max(1, Number(entry.quantity ?? 1)),
+      roleLabel: participationRoleLabel(entry.participation_role),
+    }))
+    .sort((a, b) => b.performedOn.localeCompare(a.performedOn) || a.procedureLabel.localeCompare(b.procedureLabel, "it"));
+
   return {
     totalQuantity,
     entryCount: filtered.length,
     byCategory: sortedRows(byCategory),
     byProcedure: sortedRows(byProcedure),
     byParticipationRole: sortedRows(byRole),
+    activities,
   };
 }

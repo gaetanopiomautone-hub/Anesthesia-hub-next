@@ -4,6 +4,7 @@ import { buildLogbookPortfolioReport } from "@/lib/domain/logbook-portfolio";
 
 describe("buildLogbookPortfolioReport", () => {
   const sciaticoPopliteo = {
+    performed_on: "2026-05-20",
     quantity: 2,
     participation_role: "eseguito_supervisionato" as const,
     procedure_catalog: {
@@ -35,6 +36,7 @@ describe("buildLogbookPortfolioReport", () => {
       [
         sciaticoPopliteo,
         {
+          performed_on: "2026-05-10",
           quantity: 1,
           participation_role: "osservato",
           procedure_catalog: {
@@ -51,5 +53,26 @@ describe("buildLogbookPortfolioReport", () => {
     expect(report.totalQuantity).toBe(2);
     expect(report.byCategory).toHaveLength(1);
     expect(report.byCategory[0]?.label).toBe("Blocchi perinervosi");
+  });
+
+  it("include attività ordinate per data decrescente", () => {
+    const report = buildLogbookPortfolioReport([
+      { ...sciaticoPopliteo, performed_on: "2026-05-01" },
+      {
+        performed_on: "2026-05-31",
+        quantity: 1,
+        participation_role: "assistito",
+        procedure_catalog: {
+          category: "Intubazione",
+          procedure_name: "Fibroscopica",
+          subtype: null,
+          name: "Fibroscopica",
+        },
+      },
+    ]);
+
+    expect(report.activities).toHaveLength(2);
+    expect(report.activities[0]?.performedOn).toBe("2026-05-31");
+    expect(report.activities[1]?.performedOn).toBe("2026-05-01");
   });
 });

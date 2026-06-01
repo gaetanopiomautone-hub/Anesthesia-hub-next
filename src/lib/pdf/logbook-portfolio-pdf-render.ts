@@ -1,6 +1,11 @@
 import PDFDocument from "pdfkit";
 
-import type { LogbookPortfolioReport, PortfolioBreakdownRow } from "@/lib/domain/logbook-portfolio";
+import type {
+  LogbookPortfolioActivityRow,
+  LogbookPortfolioReport,
+  PortfolioBreakdownRow,
+} from "@/lib/domain/logbook-portfolio";
+import { formatDateItalian } from "@/lib/domain/leave-request-shared";
 
 type PdfDoc = InstanceType<typeof PDFDocument>;
 
@@ -64,6 +69,70 @@ function drawTable(
   }
 
   doc.strokeColor("#000000").lineWidth(1);
+  return y + 12;
+}
+
+function drawActivitiesTable(
+  doc: PdfDoc,
+  margin: number,
+  contentW: number,
+  startY: number,
+  activities: LogbookPortfolioActivityRow[],
+  bottomReserve: number,
+): number {
+  let y = startY;
+
+  if (y > doc.page.height - bottomReserve - 80) {
+    doc.addPage({ size: "A4", layout: "portrait", margins: { top: 48, bottom: 56, left: 48, right: 48 } });
+    y = 48;
+  }
+
+  doc.font("Helvetica-Bold").fontSize(11).fillColor("#000000").text("Attività registrate", margin, y, {
+    width: contentW,
+  });
+  y += 18;
+
+  const colDate = contentW * 0.14;
+  const colQty = contentW * 0.08;
+  const colRole = contentW * 0.22;
+  const colProc = contentW - colDate - colQty - colRole;
+
+  doc.font("Helvetica-Bold").fontSize(8);
+  doc.text("Data", margin, y, { width: colDate });
+  doc.text("Procedura", margin + colDate, y, { width: colProc });
+  doc.text("Qtà", margin + colDate + colProc, y, { width: colQty, align: "right" });
+  doc.text("Ruolo", margin + colDate + colProc + colQty, y, { width: colRole });
+  y += 12;
+  doc.moveTo(margin, y).lineTo(margin + contentW, y).strokeColor("#cccccc").lineWidth(0.5).stroke();
+  y += 5;
+
+  if (activities.length === 0) {
+    doc.font("Helvetica").fontSize(9).fillColor("#666666").text("Nessuna attività nel periodo.", margin, y);
+    return y + 20;
+  }
+
+  for (const row of activities) {
+    const dateLabel = row.performedOn ? formatDateItalian(row.performedOn) : "—";
+    const procH = doc.font("Helvetica").fontSize(8).heightOfString(row.procedureLabel, {
+      width: colProc,
+      lineGap: 1,
+    });
+    const rowH = Math.max(procH, 10) + 6;
+
+    if (y + rowH > doc.page.height - bottomReserve) {
+      doc.addPage({ size: "A4", layout: "portrait", margins: { top: 48, bottom: 56, left: 48, right: 48 } });
+      y = 48;
+    }
+
+    doc.fillColor("#000000").font("Helvetica").fontSize(8);
+    doc.text(dateLabel, margin, y, { width: colDate });
+    doc.text(row.procedureLabel, margin + colDate, y, { width: colProc, lineGap: 1 });
+    doc.text(String(row.quantity), margin + colDate + colProc, y, { width: colQty, align: "right" });
+    doc.text(row.roleLabel, margin + colDate + colProc + colQty, y, { width: colRole, lineGap: 1 });
+    y += rowH;
+    doc.moveTo(margin, y - 2).lineTo(margin + contentW, y - 2).strokeColor("#eeeeee").lineWidth(0.3).stroke();
+  }
+
   return y + 12;
 }
 
@@ -140,7 +209,8 @@ export function renderLogbookPortfolioPdfToBuffer(
 
     y = drawTable(doc, margin, contentW, y, "Per ruolo formativo", report.byParticipationRole, bottomReserve);
     y = drawTable(doc, margin, contentW, y, "Per categoria", report.byCategory, bottomReserve);
-    drawTable(doc, margin, contentW, y, "Per procedura", report.byProcedure, bottomReserve);
+    y = drawTable(doc, margin, contentW, y, "Per procedura", report.byProcedure, bottomReserve);
+    drawActivitiesTable(doc, margin, contentW, y, report.activities, bottomReserve);
 
     const drawFooter = () => {
       const footY = doc.page.height - margin - 18;

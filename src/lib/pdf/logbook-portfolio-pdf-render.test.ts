@@ -8,6 +8,7 @@ describe("renderLogbookPortfolioPdfToBuffer", () => {
   it("produce un PDF valido con tabelle portfolio", async () => {
     const report = buildLogbookPortfolioReport([
       {
+        performed_on: "2026-05-20",
         quantity: 2,
         participation_role: "eseguito_supervisionato",
         procedure_catalog: {

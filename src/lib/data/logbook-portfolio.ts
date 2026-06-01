@@ -7,8 +7,12 @@ import {
   type LogbookPortfolioReport,
 } from "@/lib/domain/logbook-portfolio";
 import type { LogbookParticipationRole } from "@/lib/domain/logbook-participation";
-import { listActiveProcedureCatalog } from "@/lib/data/logbook";
-import { probeLogbookTraineeFilterColumn } from "@/lib/data/logbook";
+import {
+  listActiveProcedureCatalog,
+  performedOnFromLogbookRow,
+  probeLogbookDateColumn,
+  probeLogbookTraineeFilterColumn,
+} from "@/lib/data/logbook";
 import { listAssignableUsers } from "@/lib/data/shifts";
 import { profileDisplayName } from "@/lib/utils/profile-display";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
@@ -72,19 +76,22 @@ async function fetchPortfolioEntries(
   query: LogbookPortfolioQuery,
 ): Promise<LogbookPortfolioEntry[]> {
   const supabase = await createServerSupabaseClient();
-  const traineeCol = await probeLogbookTraineeFilterColumn(supabase);
+  const [traineeCol, dateCol] = await Promise.all([
+    probeLogbookTraineeFilterColumn(supabase),
+    probeLogbookDateColumn(supabase),
+  ]);
 
   let dbQuery = supabase
     .from("logbook_entries")
     .select(
       `
-      quantity,
-      participation_role,
+      *,
       procedure_catalog ( name, category, procedure_name, subtype )
     `,
     )
-    .gte("performed_on", query.from)
-    .lte("performed_on", query.to);
+    .gte(dateCol, query.from)
+    .lte(dateCol, query.to)
+    .order(dateCol, { ascending: false });
 
   if (profile.role === "specializzando" && traineeCol) {
     dbQuery = dbQuery.eq(traineeCol, profile.id);
@@ -107,6 +114,7 @@ async function fetchPortfolioEntries(
     };
     const proc = firstOrNull(row.procedure_catalog);
     return {
+      performed_on: performedOnFromLogbookRow(row),
       quantity: Math.max(1, Number(row.quantity ?? 1)),
       participation_role: String(row.participation_role ?? "assistito") as LogbookParticipationRole,
       procedure_catalog: proc,
@@ -179,4 +187,14 @@ export function buildPortfolioPdfSearchParams(query: LogbookPortfolioQuery): str
   if (query.traineeId) p.set("trainee", query.traineeId);
   if (query.category) p.set("category", query.category);
   return p.toString();
+}
+
+/** Portfolio PDF anno solare corrente (default per link da /logbook). */
+export function buildCurrentYearPortfolioPdfHref(): string {
+  return `/report/portfolio-pdf?${buildPortfolioPdfSearchParams({
+    from: defaultFromDate(),
+    to: defaultToDate(),
+    traineeId: null,
+    category: null,
+  })}`;
 }

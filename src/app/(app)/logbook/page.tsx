@@ -13,6 +13,7 @@ import {
   procedureCatalogLabel,
   type LogbookEntryListRow,
 } from "@/lib/data/logbook";
+import { buildCurrentYearPortfolioPdfHref } from "@/lib/data/logbook-portfolio";
 import { LOGBOOK_PARTICIPATION_ROLE_VALUES } from "@/lib/domain/logbook-participation";
 
 import { createLogbookEntryAction, updateLogbookEntryAction } from "./actions";
@@ -56,6 +57,7 @@ export default async function LogbookPage({ searchParams }: LogbookPageProps) {
   ]);
 
   const canRecord = profile.role === "specializzando";
+  const portfolioPdfHref = buildCurrentYearPortfolioPdfHref();
 
   return (
     <div className="space-y-6">
@@ -63,6 +65,14 @@ export default async function LogbookPage({ searchParams }: LogbookPageProps) {
         eyebrow="Registro procedure"
         title="Logbook formativo anestesiologico"
         description="Registra procedure per categoria, tipo e sottotipo. Ogni voce ha data, quantità e ruolo formativo (osservato → autonomo). Nessun dato identificativo del paziente."
+        actions={
+          <a
+            href={portfolioPdfHref}
+            className="inline-flex h-10 items-center justify-center rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+          >
+            Esporta portfolio PDF
+          </a>
+        }
       />
 
       {actionError ? (
